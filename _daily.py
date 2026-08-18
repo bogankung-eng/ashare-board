@@ -54,8 +54,9 @@ def main():
     if rc != 0:
         print("!!! 生成失败，中止"); return 1
 
-    print("== 3/4 更新部署物 index.html ==")
-    shutil.copy(os.path.join(BASE, "board.html"), os.path.join(BASE, "index.html"))
+    print("== 3/4 更新部署物 public/index.html ==")
+    os.makedirs(os.path.join(BASE, "public"), exist_ok=True)
+    shutil.copy(os.path.join(BASE, "board.html"), os.path.join(BASE, "public", "index.html"))
 
     print("== 4/4 推送 GitHub（CF 自动重新部署）==")
     token = get_token()
