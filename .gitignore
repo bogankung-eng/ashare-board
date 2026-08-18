@@ -1,0 +1,13 @@
+# 本地数据（不入库：含行情数据与采集日志）
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# 临时校验文件
+_check.js
+
+# 系统
+.DS_Store
+Thumbs.db
