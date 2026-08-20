@@ -28,6 +28,12 @@ POOLS = {
     "zb": ("stock_zt_pool_zbgc_em", "炸板池"),
 }
 
+# P4 中长线趋势：主要指数（新浪源）
+IDX = {
+    "sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指",
+    "sh000688": "科创50", "sh000300": "沪深300",
+}
+
 
 def get_conn():
     conn = sqlite3.connect(DB)
@@ -65,6 +71,20 @@ def get_conn():
         "CREATE TABLE IF NOT EXISTS prev_zt("
         "date TEXT, code TEXT, name TEXT, data_json TEXT, "
         "collected_at TEXT, PRIMARY KEY(date, code))"
+    )
+    # P4 中长线趋势：指数日线 + 候选池个股 K 线
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS idx_daily("
+        "code TEXT, name TEXT, date TEXT, close REAL, volume REAL, PRIMARY KEY(code, date))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS kline("
+        "code TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, "
+        "volume REAL, amount REAL, pct REAL, PRIMARY KEY(code, date))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS trend_cand("
+        "date TEXT, code TEXT, name TEXT, PRIMARY KEY(date, code))"
     )
     return conn
 
@@ -216,6 +236,98 @@ def fetch_prev_zt(conn, date_str, now):
     print(f"[OK] 昨日涨停跟踪 {len(rows)} 只")
 
 
+def fetch_idx_daily(conn, now):
+    """P4: 5 大指数日线（新浪源，增量更新近 300 日）"""
+    for code, name in IDX.items():
+        last = conn.execute("SELECT MAX(date) FROM idx_daily WHERE code=?", (code,)).fetchone()[0]
+        df = call_with_retry(ak.stock_zh_index_daily, symbol=code, retries=2)
+        if df is None:
+            print(f"  [指数] {name} 获取失败")
+            continue
+        df = df.tail(300)
+        rows = []
+        for _, r in df.iterrows():
+            d = str(r["date"])[:10]
+            if last and d <= last:
+                continue
+            rows.append((code, name, d, float(r["close"]), float(r["volume"])))
+        if rows:
+            conn.executemany("INSERT OR REPLACE INTO idx_daily(code,name,date,close,volume)"
+                             " VALUES (?,?,?,?,?)", rows)
+    conn.commit()
+    print(f"[OK] 指数日线更新（{len(IDX)} 个指数）")
+
+
+def symbol_pre(sym):
+    """6/9 开头沪市，0/3/2 开头深市，其余北交所"""
+    s = str(sym).strip()
+    if s.startswith(("6", "9")):
+        return "sh" + s
+    if s.startswith(("0", "3", "2")):
+        return "sz" + s
+    return "bj" + s
+
+
+def fetch_kline(conn, date_str, now):
+    """P4: 候选池 K 线（强势股池 + 涨停池连板≥2），新浪源，增量更新"""
+    codes = {}
+    df = call_with_retry(ak.stock_zt_pool_strong_em, date=date_str, retries=2)
+    if df is not None:
+        for r in df.to_dict(orient="records"):
+            c = str(r.get("代码", "")).strip()
+            if c:
+                codes.setdefault(c, str(r.get("名称", "")).strip())
+    # 涨停池补充：只取连板≥2 的活跃票
+    for d in [r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM collect_log WHERE status='ok' AND date<=? "
+            "ORDER BY date DESC LIMIT 3", (date_str,))]:
+        for c, n, j in conn.execute(
+                "SELECT code, name, json_extract(data_json,'$.连板数') FROM pool_daily "
+                "WHERE date=? AND pool_type='zt'", (d,)):
+            if (j or 0) >= 2:
+                codes.setdefault(c, n)
+
+    if not codes:
+        print("[跳过] 候选池为空")
+        return
+    # 候选名称存档（供看板展示，独立于 K 线增量）
+    conn.executemany("INSERT OR REPLACE INTO trend_cand(date,code,name) VALUES (?,?,?)",
+                     [(date_str, c, n) for c, n in codes.items()])
+    conn.commit()
+    todo = []
+    for c in codes:
+        last = conn.execute("SELECT MAX(date) FROM kline WHERE code=?", (c,)).fetchone()[0]
+        if last and last.replace("-", "") >= date_str:
+            continue
+        todo.append(c)
+    print(f"[K线] 候选 {len(codes)} 只，待更新 {len(todo)} 只", flush=True)
+    n_ok = 0
+    for i, c in enumerate(todo):
+        df = call_with_retry(ak.stock_zh_a_daily, symbol=symbol_pre(c),
+                             adjust="qfq", retries=2)
+        if df is None or len(df) == 0:
+            continue
+        last = conn.execute("SELECT MAX(date) FROM kline WHERE code=?", (c,)).fetchone()[0]
+        rows = []
+        for _, r in df.tail(300).iterrows():
+            d = str(r["date"])[:10]
+            if last and d <= last:
+                continue
+            rows.append((c, d, float(r["open"]), float(r["high"]), float(r["low"]),
+                         float(r["close"]), float(r["volume"]),
+                         float(r.get("amount") or 0), None))
+        if rows:
+            conn.executemany("INSERT OR REPLACE INTO kline(code,date,open,high,low,close,volume,amount,pct)"
+                             " VALUES (?,?,?,?,?,?,?,?,?)", rows)
+            n_ok += 1
+        if (i + 1) % 30 == 0:
+            conn.commit()
+            print(f"  [K线] 进度 {i+1}/{len(todo)}", flush=True)
+        time.sleep(0.1)
+    conn.commit()
+    print(f"[OK] K线更新 {n_ok} 只（新浪源）", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="A股行情看板 P0 数据采集器")
     ap.add_argument("--date", default=date.today().strftime("%Y%m%d"), help="YYYYMMDD")
@@ -231,6 +343,10 @@ def main():
         print(f"[跳过] {date_str} 非交易日")
         conn.close()
         return
+
+    # P4 数据：指数 + 候选池 K 线（独立于日志，每日增量更新）
+    fetch_idx_daily(conn, now)
+    fetch_kline(conn, date_str, now)
 
     if not args.force and conn.execute(
         "SELECT 1 FROM collect_log WHERE date=? AND status='ok'", (date_str,)

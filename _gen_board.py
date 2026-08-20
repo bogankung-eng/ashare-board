@@ -17,6 +17,97 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE, "data", "board.db")
 OUT = os.path.join(BASE, "board.html")
 
+IDX = {
+    "sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指",
+    "sh000688": "科创50", "sh000300": "沪深300",
+}
+
+
+def analyze_trend(conn):
+    """P4 中长线趋势分析：指数状态 + 趋势池（均线多头/新高/RS/回踩/突破）+ 评分"""
+    # 1) 指数趋势状态
+    idx = {}
+    for code, name in IDX.items():
+        rows = conn.execute(
+            "SELECT date, close FROM idx_daily WHERE code=? ORDER BY date", (code,)).fetchall()
+        if len(rows) < 60:
+            continue
+        closes = [r[1] for r in rows]
+        ma20 = sum(closes[-20:]) / 20
+        ma60 = sum(closes[-60:]) / 60
+        ma120 = sum(closes[-120:]) / 120 if len(closes) >= 120 else None
+        if ma20 > ma60 and (ma120 is None or ma60 > ma120):
+            st = "多头"
+        elif ma20 < ma60 and (ma120 is None or ma60 < ma120):
+            st = "空头"
+        else:
+            st = "震荡"
+        idx[name] = {
+            "code": code, "close": round(closes[-1], 2),
+            "pct20": round((closes[-1] / closes[-21] - 1) * 100, 2) if len(closes) >= 21 else 0,
+            "ma20": round(ma20, 2), "ma60": round(ma60, 2),
+            "ma120": round(ma120, 2) if ma120 else None, "status": st,
+        }
+
+    # 2) 趋势池（基准 = 沪深300 20日涨幅）
+    bench20 = idx.get("沪深300", {}).get("pct20", 0)
+    names = {}
+    for c, n in conn.execute("SELECT code, name FROM trend_cand ORDER BY date DESC"):
+        names.setdefault(c, n)
+    for d in [r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM collect_log WHERE status='ok' ORDER BY date DESC LIMIT 3")]:
+        for c, n in conn.execute(
+                "SELECT code, name FROM pool_daily WHERE date=?", (d,)):
+            names.setdefault(c, n)
+
+    pool = []
+    for code, in conn.execute("SELECT DISTINCT code FROM kline"):
+        rows = conn.execute(
+            "SELECT date, high, low, close, volume FROM kline WHERE code=? ORDER BY date", (code,)).fetchall()
+        if len(rows) < 70:
+            continue
+        closes = [r[3] for r in rows]
+        vols = [r[4] for r in rows]
+        cur = closes[-1]
+        ma10 = sum(closes[-10:]) / 10
+        ma20 = sum(closes[-20:]) / 20
+        ma60 = sum(closes[-60:]) / 60
+        ma120 = sum(closes[-120:]) / 120 if len(closes) >= 120 else ma60
+        bull = ma20 > ma60 > ma120
+        half_bull = ma20 > ma60
+        high60 = cur >= max(closes[-60:]) * 0.995
+        high52 = max(closes)
+        dist52 = (cur / high52 - 1) * 100
+        pct20 = (cur / closes[-21] - 1) * 100 if len(closes) >= 21 else 0
+        rs = round(pct20 - bench20, 2)
+        pullback = bull and (abs(cur / ma10 - 1) <= 0.03 or abs(cur / ma20 - 1) <= 0.03)
+        prev_high = max(closes[-21:-1]) if len(closes) >= 21 else cur
+        vol_avg5 = sum(vols[-6:-1]) / 5 if len(vols) >= 6 else 1
+        breakout = cur > prev_high and vols[-1] > vol_avg5 * 1.5
+
+        score = 0
+        if bull:
+            score += 4
+        elif half_bull:
+            score += 2
+        if high60:
+            score += 2
+        if rs > 0:
+            score += 2
+        if dist52 > -15:
+            score += 2
+        lv = "强" if score >= 9 else ("中" if score >= 6 else "弱")
+
+        pool.append({
+            "code": code, "name": names.get(code, code),
+            "close": round(cur, 2), "pct20": round(pct20, 2), "rs": rs,
+            "dist52": round(dist52, 2), "bull": bull, "high60": high60,
+            "pullback": pullback, "breakout": breakout, "score": score,
+            "lv": lv, "ma20": round(ma20, 2), "ma60": round(ma60, 2),
+        })
+    pool.sort(key=lambda x: -x["score"])
+    return {"idx": idx, "pool": pool, "bench20": bench20}
+
 
 def load_dates(conn):
     return [r[0] for r in conn.execute(
@@ -313,8 +404,9 @@ def build(dates):
             "hl": hl_conclusion,
             "ext": analyze_ext(ext, pools),
         }
+    trend = analyze_trend(conn)
     conn.close()
-    return {"dates": dates, "days": days}
+    return {"dates": dates, "days": days, "trend": trend}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -421,18 +513,47 @@ TEMPLATE = r"""<!DOCTYPE html>
   .mini-list .row{padding:3px 0; border-bottom:1px dashed var(--line); display:flex; gap:6px; align-items:center;}
   .mini-list .row:last-child{border-bottom:none;}
   .mini-list .c{color:var(--ink3); font-family:Consolas,monospace; font-size:11px;}
+  .tabs-wrap input{display:none;}
+  .tabs{display:flex; gap:8px; margin:0 0 16px;}
+  .tabs label{display:inline-block; padding:9px 22px; border:1px solid var(--line); border-radius:24px; cursor:pointer; font-size:14px; background:#fbfaf7; color:var(--ink2); user-select:none; font-weight:600;}
+  #tab-short:checked ~ .tabs label[for="tab-short"],
+  #tab-trend:checked ~ .tabs label[for="tab-trend"]{background:var(--blue); color:#fff; border-color:var(--blue);}
+  .panel{display:none;}
+  #tab-short:checked ~ .panel-short,
+  #tab-trend:checked ~ .panel-trend{display:block;}
+  .idx-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px;}
+  .idx-card{border:1px solid var(--line); border-radius:10px; padding:10px 14px; background:#fbfaf7;}
+  .idx-card .iname{font-weight:600; font-size:13.5px;}
+  .idx-card .ival{font-size:16px; font-weight:600; margin:2px 0;}
+  .idx-card .imeta{font-size:11.5px; color:var(--ink2); line-height:1.7;}
+  .st-bull{background:var(--upbg); color:var(--up); border:1px solid #f3c4c2; border-radius:5px; padding:1px 8px; font-size:11px; font-weight:600;}
+  .st-bear{background:var(--downbg); color:var(--down); border:1px solid #c2e3cc; border-radius:5px; padding:1px 8px; font-size:11px; font-weight:600;}
+  .st-mix{background:#f1efe9; color:var(--ink2); border:1px solid var(--line); border-radius:5px; padding:1px 8px; font-size:11px; font-weight:600;}
+  .sig-tag{border-radius:5px; padding:1px 7px; font-size:11px; font-weight:600; margin-right:4px;}
+  .sig-bk{background:var(--purplebg); color:var(--purple); border:1px solid #d8d4f0;}
+  .sig-pb{background:var(--amberbg); color:var(--amber); border:1px solid #f0d9ac;}
+  .sig-hi{background:var(--bluebg); color:var(--blue); border:1px solid #9cc4e8;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="topbar">
     <div>
-      <h1>A股短线看板 · 涨停接力复盘</h1>
+      <h1>A股行情看板 · 短线 + 中长线趋势</h1>
       <div class="sub" id="subline"></div>
     </div>
     <div class="datebar" id="datebar"></div>
   </div>
 
+  <div class="tabs-wrap">
+    <input type="radio" name="mod" id="tab-short" checked>
+    <input type="radio" name="mod" id="tab-trend">
+    <div class="tabs">
+      <label for="tab-short">短线复盘</label>
+      <label for="tab-trend">中长线趋势</label>
+    </div>
+
+  <div class="panel panel-short">
   <div class="card">
     <div id="sentiment"></div>
   </div>
@@ -492,6 +613,40 @@ TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="card">
     <div id="pool"></div>
+  </div>
+  </div>
+
+  <div class="panel panel-trend">
+    <div class="card">
+      <div id="trend-idx"></div>
+    </div>
+    <div class="card">
+      <div class="filters">
+        <div class="f-item">
+          <label>强度档位</label>
+          <select id="t-lv">
+            <option value="all">全部</option>
+            <option value="强">仅强</option>
+            <option value="中">中及以上</option>
+          </select>
+        </div>
+        <div class="f-item">
+          <label>信号</label>
+          <select id="t-sig">
+            <option value="all">全部</option>
+            <option value="bk">仅突破</option>
+            <option value="pb">仅回踩</option>
+            <option value="hi">仅新高</option>
+          </select>
+        </div>
+        <div class="f-item">
+          <label>筛选</label>
+          <button class="btn" id="t-reset" type="button">重置</button>
+        </div>
+      </div>
+      <div id="trend-pool" style="margin-top:12px;"></div>
+    </div>
+  </div>
   </div>
 
   <div class="disclaimer"><b>免责声明：</b>本看板数据来自公开行情接口（东方财富/乐咕乐股），仅供个人复盘研究参考，不构成投资建议。市场有风险，投资需谨慎。涨停原因、题材归类等字段将在后续版本完善。</div>
@@ -752,10 +907,67 @@ window.BOARD_DATA = __DATA__;
     box.innerHTML = html;
   }
 
+  var tFilters = { lv: "all", sig: "all" };
+
+  function renderTrend() {
+    var tr = data.trend;
+    var boxIdx = document.getElementById("trend-idx");
+    if (!tr || !tr.idx) { boxIdx.innerHTML = '<div class="empty">趋势数据采集中，今晚 21:30 自动更新后可见</div>'; return; }
+    var html = '<div style="font-weight:600; font-size:15px; margin-bottom:12px;">指数趋势状态 <span style="font-size:12px;color:var(--ink2);font-weight:400;">MA20/MA60/MA120 · 基准 20 日涨幅 ' + tr.bench20 + '%</span></div>';
+    html += '<div class="idx-grid">';
+    Object.keys(tr.idx).forEach(function (nm) {
+      var it = tr.idx[nm];
+      var cls = it.status === "多头" ? "st-bull" : (it.status === "空头" ? "st-bear" : "st-mix");
+      html += '<div class="idx-card"><div class="iname">' + esc(nm) + '</div>' +
+        '<div class="ival">' + it.close + '</div>' +
+        '<div class="imeta"><span class="' + cls + '">' + it.status + '</span> 20日 ' +
+        (it.pct20 >= 0 ? '<span class="money-in">+' : '<span class="money-out">') + it.pct20 + '%</span><br>' +
+        'MA20 ' + it.ma20 + ' / MA60 ' + it.ma60 + (it.ma120 ? ' / MA120 ' + it.ma120 : '') + '</div></div>';
+    });
+    html += '</div>';
+    boxIdx.innerHTML = html;
+
+    var list = tr.pool.filter(function (r) {
+      if (tFilters.lv === "强" && r.lv !== "强") return false;
+      if (tFilters.lv === "中" && r.lv === "弱") return false;
+      if (tFilters.sig === "bk" && !r.breakout) return false;
+      if (tFilters.sig === "pb" && !r.pullback) return false;
+      if (tFilters.sig === "hi" && !r.high60) return false;
+      return true;
+    });
+    var box = document.getElementById("trend-pool");
+    if (!list.length) { box.innerHTML = '<div class="empty">无符合条件的趋势候选</div>'; return; }
+    var up = list.filter(function (r) { return r.bull; }).length;
+    html = '<div style="color:var(--ink2);font-size:12.5px;margin-bottom:10px;">候选池 ' + list.length + ' 只 · 均线多头 ' + up + ' 只 · 按强度评分排序</div>';
+    html += '<table><tr><th>代码</th><th>名称</th><th>现价</th><th>20日涨幅</th><th>RS(超额)</th><th>距52周高</th><th>MA20</th><th>MA60</th><th>信号</th><th>强度</th></tr>';
+    list.forEach(function (r) {
+      var sigs = '';
+      if (r.breakout) sigs += '<span class="sig-tag sig-bk">突破</span>';
+      if (r.pullback) sigs += '<span class="sig-tag sig-pb">回踩</span>';
+      if (r.high60) sigs += '<span class="sig-tag sig-hi">60日新高</span>';
+      if (!sigs && r.bull) sigs += '<span class="sig-tag sig-hi">多头</span>';
+      html += '<tr>' +
+        '<td class="code">' + esc(r.code) + '</td>' +
+        '<td><b>' + esc(r.name) + '</b></td>' +
+        '<td class="num">' + r.close + '</td>' +
+        '<td class="num ' + (r.pct20 >= 0 ? "money-in" : "money-out") + '">' + (r.pct20 >= 0 ? "+" : "") + r.pct20 + '%</td>' +
+        '<td class="num ' + (r.rs >= 0 ? "money-in" : "money-out") + '">' + (r.rs >= 0 ? "+" : "") + r.rs + '</td>' +
+        '<td class="num">' + r.dist52 + '%</td>' +
+        '<td class="num">' + r.ma20 + '</td>' +
+        '<td class="num">' + r.ma60 + '</td>' +
+        '<td>' + (sigs || '<span style="color:var(--ink3);">-</span>') + '</td>' +
+        '<td><span class="pill-lv ' + (r.lv === "强" ? "lv-strong" : r.lv === "中" ? "lv-mid" : "lv-weak") + '">' + r.lv + ' · ' + r.score + '</span></td>' +
+        '</tr>';
+    });
+    html += '</table>';
+    box.innerHTML = html;
+  }
+
   function renderAll() {
     renderSentiment();
     renderThemes();
     renderExt();
+    renderTrend();
     buildIndTags();
     renderPool();
     renderDatebar();
@@ -775,6 +987,14 @@ window.BOARD_DATA = __DATA__;
       document.getElementById("f-seal").value = "all";
       document.getElementById("f-zb").value = "all";
       renderAll();
+    };
+    document.getElementById("t-lv").onchange = function (e) { tFilters.lv = e.target.value; renderTrend(); };
+    document.getElementById("t-sig").onchange = function (e) { tFilters.sig = e.target.value; renderTrend(); };
+    document.getElementById("t-reset").onclick = function () {
+      tFilters = { lv: "all", sig: "all" };
+      document.getElementById("t-lv").value = "all";
+      document.getElementById("t-sig").value = "all";
+      renderTrend();
     };
   }
 
