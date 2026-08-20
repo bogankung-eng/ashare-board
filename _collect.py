@@ -86,6 +86,17 @@ def get_conn():
         "CREATE TABLE IF NOT EXISTS trend_cand("
         "date TEXT, code TEXT, name TEXT, PRIMARY KEY(date, code))"
     )
+    # P5 长线价值：估值历史 + 财务多期
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS value_hist("
+        "code TEXT, date TEXT, close REAL, pe_ttm REAL, pe_static REAL, pb REAL, "
+        "total_mv REAL, PRIMARY KEY(code, date))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS fin_hist("
+        "code TEXT, date TEXT, roe REAL, profit_margin REAL, debt_ratio REAL, "
+        "cf_roa REAL, rev_growth REAL, profit_growth REAL, PRIMARY KEY(code, date))"
+    )
     return conn
 
 
@@ -328,6 +339,74 @@ def fetch_kline(conn, date_str, now):
     print(f"[OK] K线更新 {n_ok} 只（新浪源）", flush=True)
 
 
+def fetch_value(conn, date_str, now):
+    """P5: 价值候选池——估值历史（stock_value_em，增量）+ 财务多期（新浪，覆盖）"""
+    wl = os.path.join(BASE, "value_watchlist.json")
+    if not os.path.exists(wl):
+        print("[跳过] value_watchlist.json 不存在")
+        return
+    watch = json.load(open(wl, encoding="utf-8"))
+    if not watch:
+        print("[跳过] 价值候选池为空")
+        return
+
+    # 1) 估值历史（增量：只补最新日期之后）
+    v_new = 0
+    for code, name in watch.items():
+        last = conn.execute("SELECT MAX(date) FROM value_hist WHERE code=?", (code,)).fetchone()[0]
+        df = call_with_retry(ak.stock_value_em, symbol=code, retries=2)
+        if df is None or len(df) == 0:
+            print(f"  [估值] {name} 获取失败")
+            continue
+        rows = []
+        for _, r in df.iterrows():
+            d = str(r["数据日期"])[:10]
+            if last and d <= last:
+                continue
+            rows.append((code, d, _jsonable(r["当日收盘价"]), _jsonable(r["PE(TTM)"]),
+                         _jsonable(r["PE(静)"]), _jsonable(r["市净率"]),
+                         _jsonable(r["总市值"])))
+        if rows:
+            conn.executemany("INSERT OR REPLACE INTO value_hist(code,date,close,pe_ttm,pe_static,pb,total_mv)"
+                             " VALUES (?,?,?,?,?,?,?)", rows)
+            v_new += len(rows)
+    conn.commit()
+    print(f"[OK] 估值历史更新 {v_new} 行（{len(watch)} 只）", flush=True)
+
+    # 2) 财务多期（覆盖式，季报级；失败不中断主流程）
+    f_ok = 0
+    for code, name in watch.items():
+        try:
+            df = call_with_retry(ak.stock_financial_analysis_indicator,
+                                 symbol=code, start_year=str(int(date_str[:4]) - 4), retries=2)
+            if df is None or len(df) == 0:
+                continue
+        except Exception as e:
+            print(f"  [财务] {name} 失败: {str(e)[:60]}")
+            continue
+        rows = []
+        for _, r in df.iterrows():
+            def _g(col):
+                v = r.get(col)
+                if v is None:
+                    return None
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return None
+            rows.append((code, str(r["日期"])[:10], _g("净资产收益率(%)"),
+                         _g("销售净利率(%)"), _g("资产负债率(%)"),
+                         _g("资产的经营现金流量回报率(%)"),
+                         _g("主营业务收入增长率(%)"), _g("净利润增长率(%)")))
+        if rows:
+            conn.executemany("INSERT OR REPLACE INTO fin_hist(code,date,roe,profit_margin,debt_ratio,cf_roa,rev_growth,profit_growth)"
+                             " VALUES (?,?,?,?,?,?,?,?)", rows)
+            f_ok += 1
+        time.sleep(0.1)
+    conn.commit()
+    print(f"[OK] 财务指标更新 {f_ok} 只", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="A股行情看板 P0 数据采集器")
     ap.add_argument("--date", default=date.today().strftime("%Y%m%d"), help="YYYYMMDD")
@@ -347,6 +426,9 @@ def main():
     # P4 数据：指数 + 候选池 K 线（独立于日志，每日增量更新）
     fetch_idx_daily(conn, now)
     fetch_kline(conn, date_str, now)
+
+    # P5 数据：价值候选池（估值 + 财务，独立增量）
+    fetch_value(conn, date_str, now)
 
     if not args.force and conn.execute(
         "SELECT 1 FROM collect_log WHERE date=? AND status='ok'", (date_str,)

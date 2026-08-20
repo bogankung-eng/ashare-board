@@ -388,6 +388,87 @@ def analyze_ext(ext, pools):
     return out
 
 
+def analyze_value(conn):
+    """P5 长线价值：估值分位（5年 PE TTM/PB）+ 巴式体检评分"""
+    wl = os.path.join(BASE, "value_watchlist.json")
+    if not os.path.exists(wl):
+        return {"pool": [], "note": "未配置 value_watchlist.json"}
+    watch = json.load(open(wl, encoding="utf-8"))
+    pool = []
+    for code, name in watch.items():
+        vrows = conn.execute(
+            "SELECT date, close, pe_ttm, pb FROM value_hist WHERE code=? "
+            "AND pe_ttm IS NOT NULL ORDER BY date", (code,)).fetchall()
+        if len(vrows) < 60:
+            continue
+        # 近 5 年（约 1250 交易日）估值序列
+        look = vrows[-1250:]
+        pes = [r[2] for r in look if r[2] and r[2] > 0]
+        pbs = [r[3] for r in look if r[3] and r[3] > 0]
+        cur_pe, cur_pb, cur_close = vrows[-1][2], vrows[-1][3], vrows[-1][1]
+        if not pes or not pbs:
+            continue
+        pe_pct = round(sum(1 for x in pes if x < cur_pe) / len(pes) * 100)
+        pb_pct = round(sum(1 for x in pbs if x < cur_pb) / len(pbs) * 100)
+        if pe_pct < 30:
+            val_tag, val_cls = "便宜", "good"
+        elif pe_pct < 60:
+            val_tag, val_cls = "合理", "flat"
+        else:
+            val_tag, val_cls = "偏贵", "warn"
+
+        frows = conn.execute(
+            "SELECT roe, profit_margin, debt_ratio, cf_roa, rev_growth FROM fin_hist "
+            "WHERE code=? AND roe IS NOT NULL ORDER BY date", (code,)).fetchall()
+        f = frows[-1] if frows else None
+        roes = [r[0] for r in frows[-8:]] if frows else []
+        roe = f[0] if f else None
+        debt = f[2] if f else None
+        cf = f[3] if f else None
+        rev_g = f[4] if f else None
+        roe_avg = round(sum(roes) / len(roes), 1) if roes else None
+
+        # 巴式评分 10 分：估值 + 质地(年均ROE) + 稳健
+        roe_use = roe_avg if roe_avg is not None else roe  # 优先 8 期均值（年化更真实）
+        score = 0
+        if pe_pct < 30:
+            score += 3
+        elif pe_pct < 50:
+            score += 2
+        else:
+            score += 1
+        if roe_use is not None:
+            if roe_use >= 15:
+                score += 3
+            elif roe_use >= 10:
+                score += 2
+            else:
+                score += 1
+        if debt is not None:
+            score += 2 if debt < 50 else 1
+        if rev_g is not None and rev_g > 0:
+            score += 2
+        elif cf is not None and cf > 0:
+            score += 1
+        lv = "优" if score >= 8 else ("良" if score >= 6 else "一般")
+        lv_cls = "lv-strong" if lv == "优" else ("lv-mid" if lv == "良" else "lv-weak")
+
+        pool.append({
+            "code": code, "name": name, "close": round(cur_close, 2),
+            "pe_ttm": round(cur_pe, 1) if cur_pe else None,
+            "pb": round(cur_pb, 2) if cur_pb else None,
+            "pe_pct": pe_pct, "pb_pct": pb_pct,
+            "val_tag": val_tag, "val_cls": val_cls,
+            "roe": round(roe_use, 1) if roe_use is not None else None,
+            "roe_avg": roe_avg, "debt": round(debt, 1) if debt is not None else None,
+            "cf_roa": round(cf, 1) if cf is not None else None,
+            "rev_g": round(rev_g, 1) if rev_g is not None else None,
+            "score": score, "lv": lv, "lv_cls": lv_cls,
+        })
+    pool.sort(key=lambda x: -x["score"])
+    return {"pool": pool, "note": ""}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -405,8 +486,9 @@ def build(dates):
             "ext": analyze_ext(ext, pools),
         }
     trend = analyze_trend(conn)
+    value = analyze_value(conn)
     conn.close()
-    return {"dates": dates, "days": days, "trend": trend}
+    return {"dates": dates, "days": days, "trend": trend, "value": value}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -517,10 +599,12 @@ TEMPLATE = r"""<!DOCTYPE html>
   .tabs{display:flex; gap:8px; margin:0 0 16px;}
   .tabs label{display:inline-block; padding:9px 22px; border:1px solid var(--line); border-radius:24px; cursor:pointer; font-size:14px; background:#fbfaf7; color:var(--ink2); user-select:none; font-weight:600;}
   #tab-short:checked ~ .tabs label[for="tab-short"],
-  #tab-trend:checked ~ .tabs label[for="tab-trend"]{background:var(--blue); color:#fff; border-color:var(--blue);}
+  #tab-trend:checked ~ .tabs label[for="tab-trend"],
+  #tab-value:checked ~ .tabs label[for="tab-value"]{background:var(--blue); color:#fff; border-color:var(--blue);}
   .panel{display:none;}
   #tab-short:checked ~ .panel-short,
-  #tab-trend:checked ~ .panel-trend{display:block;}
+  #tab-trend:checked ~ .panel-trend,
+  #tab-value:checked ~ .panel-value{display:block;}
   .idx-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px;}
   .idx-card{border:1px solid var(--line); border-radius:10px; padding:10px 14px; background:#fbfaf7;}
   .idx-card .iname{font-weight:600; font-size:13.5px;}
@@ -548,9 +632,11 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div class="tabs-wrap">
     <input type="radio" name="mod" id="tab-short" checked>
     <input type="radio" name="mod" id="tab-trend">
+    <input type="radio" name="mod" id="tab-value">
     <div class="tabs">
       <label for="tab-short">短线复盘</label>
       <label for="tab-trend">中长线趋势</label>
+      <label for="tab-value">长线价值</label>
     </div>
 
   <div class="panel panel-short">
@@ -645,6 +731,12 @@ TEMPLATE = r"""<!DOCTYPE html>
         </div>
       </div>
       <div id="trend-pool" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <div class="panel panel-value">
+    <div class="card">
+      <div id="value-card"></div>
     </div>
   </div>
   </div>
@@ -963,11 +1055,51 @@ window.BOARD_DATA = __DATA__;
     box.innerHTML = html;
   }
 
+  function renderValue() {
+    var v = data.value;
+    var box = document.getElementById("value-card");
+    if (!v || !v.pool || !v.pool.length) {
+      box.innerHTML = '<div class="empty">价值数据采集中（value_watchlist.json 配置的候选池，21:30 自动更新后可见）</div>';
+      return;
+    }
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' +
+      '<div style="font-weight:600; font-size:15px;">长线价值 · 估值分位 + 质地体检</div>' +
+      '<div style="font-size:12px;color:var(--ink2);">候选池 ' + v.pool.length + ' 只（编辑 value_watchlist.json 可增删）· 按评分排序</div></div>';
+    html += '<table><tr><th>代码</th><th>名称</th><th>现价</th><th>PE(TTM)</th><th>PE 5年分位</th><th>PB</th><th>PB 5年分位</th><th>估值</th><th>ROE</th><th>ROE均(8期)</th><th>负债率</th><th>现金流回报</th><th>评级</th></tr>';
+    v.pool.forEach(function (r) {
+      var peStr = r.pe_ttm !== null && r.pe_ttm !== undefined ? r.pe_ttm : "-";
+      var pbStr = r.pb !== null && r.pb !== undefined ? r.pb : "-";
+      var roeStr = r.roe !== null && r.roe !== undefined ? r.roe + '%' : "-";
+      var roeAvgStr = r.roe_avg !== null && r.roe_avg !== undefined ? r.roe_avg + '%' : "-";
+      var debtStr = r.debt !== null && r.debt !== undefined ? r.debt + '%' : "-";
+      var cfStr = r.cf_roa !== null && r.cf_roa !== undefined ? r.cf_roa + '%' : "-";
+      html += '<tr>' +
+        '<td class="code">' + esc(r.code) + '</td>' +
+        '<td><b>' + esc(r.name) + '</b></td>' +
+        '<td class="num">' + r.close + '</td>' +
+        '<td class="num">' + peStr + '</td>' +
+        '<td class="num">' + r.pe_pct + '%</td>' +
+        '<td class="num">' + pbStr + '</td>' +
+        '<td class="num">' + r.pb_pct + '%</td>' +
+        '<td><span class="stage-tag st-' + (r.val_cls === "good" ? "good" : r.val_cls === "warn" ? "warn" : "flat") + '">' + r.val_tag + '</span></td>' +
+        '<td class="num">' + roeStr + '</td>' +
+        '<td class="num">' + roeAvgStr + '</td>' +
+        '<td class="num">' + debtStr + '</td>' +
+        '<td class="num">' + cfStr + '</td>' +
+        '<td><span class="pill-lv ' + r.lv_cls + '">' + r.lv + ' · ' + r.score + '</span></td>' +
+        '</tr>';
+    });
+    html += '</table>';
+    html += '<div style="font-size:11.5px;color:var(--ink3);margin-top:10px;">估值分位 = 当前 PE(TTM)/PB 在近 5 年中的百分位（越低越便宜）；评分 = 估值(3) + 质地ROE(3) + 负债率(2) + 成长/现金流(2)。股息视角待补。</div>';
+    box.innerHTML = html;
+  }
+
   function renderAll() {
     renderSentiment();
     renderThemes();
     renderExt();
     renderTrend();
+    renderValue();
     buildIndTags();
     renderPool();
     renderDatebar();
