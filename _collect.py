@@ -389,11 +389,7 @@ def main():
         snapshot["breadth"] = b
         print(f"[OK] 广度 涨{b['up']} 跌{b['down']} 平{b['flat']} 涨停{b['limit_up']} 跌停{b['limit_down']}")
 
-    # 3) JSON 快照
-    snap_file = os.path.join(SNAP_DIR, f"snapshot_{date_str}.json")
-    with open(snap_file, "w", encoding="utf-8") as f:
-        json.dump(snapshot, f, ensure_ascii=False, indent=1)
-    print(f"[OK] 快照 -> {snap_file}")
+    # 3) 快照停用：board.db 为唯一数据源，不再生成 snapshot JSON（冗余，避免本地文件堆积）
 
     # 4) P3 扩展数据：龙虎榜 / 板块资金流 / 昨日涨停跟踪
     fetch_lhb(conn, date_str, now)
