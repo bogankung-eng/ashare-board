@@ -259,6 +259,35 @@ def analyze_stocks(pools):
         }
         ind = r.get("所属行业") or "其他"
         r["_reason"] = f"{ind}·{ind_count[ind]}家"
+        r["_attr"] = _attribute_reason(r, ind_count[ind])
+
+
+def _attribute_reason(r, ind_cnt):
+    """P6-A 涨停四维归因：题材/资金/技术/消息 → 归因向量 + 主标签"""
+    topic = min(50, int(ind_cnt or 1) * 8)
+    if (r.get("_ind_rank") or 9) <= 2:
+        topic += 10  # 板块内前 2 = 卡位
+    if int(r.get("连板数") or 0) >= 2:
+        topic += 8  # 有梯队延续 = 题材属性增强
+    fund = float(r.get("封板资金") or 0)
+    money = 10
+    if fund >= 100000000:
+        money += 20
+    elif fund >= 30000000:
+        money += 10
+    turn = float(r.get("换手率") or 0)
+    if 3 <= turn <= 20:
+        money += 10  # 健康换手
+    tech = 15 if int(r.get("连板数") or 0) <= 1 else 0  # 低位首板
+    if int(r.get("炸板次数") or 0) >= 3:
+        tech -= 5
+    # 消息分：仅当题材/资金/技术均弱时占主导，且设上限 30（需公告验证，避免虚高）
+    msg = min(30, max(0, 100 - topic - money - tech))
+    s = topic + money + tech + msg
+    parts = {"题材": topic, "资金": money, "技术": tech, "消息": msg}
+    main = max(parts, key=parts.get)
+    return {"topic": round(topic / s * 100), "money": round(money / s * 100),
+            "tech": round(tech / s * 100), "msg": round(msg / s * 100), "main": main}
 
 
 def analyze_themes(pools, sent):
@@ -469,6 +498,71 @@ def analyze_value(conn):
     return {"pool": pool, "note": ""}
 
 
+def analyze_seats(conn, date_str):
+    """P6-A 龙虎榜席位解析：风格打标 + 净买方向 + 历史活跃度"""
+    style_file = os.path.join(BASE, "seat_style.json")
+    if not os.path.exists(style_file):
+        return {"stocks": {}, "hot": [], "count": 0}
+    style = json.load(open(style_file, encoding="utf-8"))
+    hot = style.get("known_hot_money", [])
+    retail = style.get("retail_channels", [])
+
+    def tag(seat):
+        if "机构专用" in seat:
+            return "机构"
+        if any(h in seat for h in hot):
+            return "知名游资"
+        if "量化" in seat:
+            return "量化"
+        if any(k in seat for k in retail):
+            return "散户通道"
+        if "深股通" in seat or "沪股通" in seat:
+            return "北向"
+        return "其他"
+
+    rows = conn.execute(
+        "SELECT code, seat, buy_amt, sell_amt, net FROM seat_daily WHERE date=? "
+        "ORDER BY code", (date_str,)).fetchall()
+    stocks = {}
+    for code, seat, buy, sell, net in rows:
+        seat = str(seat)
+        key = (code, seat)
+        item = stocks.setdefault(key, {
+            "code": code, "seat": seat, "tag": tag(seat),
+            "buy": 0, "sell": 0, "net": 0,
+        })
+        item["buy"] += buy if buy else 0
+        item["sell"] += sell if sell else 0
+        item["net"] += net if net else 0
+    by_code = {}
+    for (code, _seat), item in stocks.items():
+        by_code.setdefault(code, []).append(item)
+    # 席位历史活跃度（不含当日）
+    hist = {}
+    for code, seat, net in conn.execute(
+            "SELECT code, seat, net FROM seat_daily WHERE date < ?", (date_str,)):
+        s = str(seat)
+        h = hist.setdefault(s, {"n": 0, "buy_n": 0})
+        h["n"] += 1
+        if net and net > 0:
+            h["buy_n"] += 1
+    # 知名游资当日动向（买/卖双向，按金额绝对值排序）
+    hot_act = []
+    names = {r[0]: r[1] for r in conn.execute(
+        "SELECT DISTINCT code, name FROM pool_daily WHERE date=? AND pool_type IN ('zt','dt')", (date_str,))}
+    for code, seats_l in by_code.items():
+        for s in seats_l:
+            if s["tag"] == "知名游资" and s["net"] != 0:
+                h = hist.get(s["seat"], {"n": 0, "buy_n": 0})
+                hot_act.append({
+                    "seat": s["seat"], "code": code,
+                    "name": names.get(code, code), "net": s["net"],
+                    "hist_n": h["n"],
+                })
+    hot_act.sort(key=lambda x: -abs(x["net"]))
+    return {"stocks": by_code, "hot": hot_act[:15], "count": len(rows)}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -484,6 +578,7 @@ def build(dates):
             "themes": themes,
             "hl": hl_conclusion,
             "ext": analyze_ext(ext, pools),
+            "seats": analyze_seats(conn, d),
         }
     trend = analyze_trend(conn)
     value = analyze_value(conn)
@@ -585,6 +680,17 @@ TEMPLATE = r"""<!DOCTYPE html>
   .money-in{color:var(--up);}
   .money-out{color:var(--down);}
   .focus-tag{background:var(--purplebg); color:var(--purple); border:1px solid #d8d4f0; border-radius:5px; font-size:10.5px; padding:0 5px;}
+  .attr-pill{border-radius:5px; padding:1px 7px; font-size:11px; font-weight:600; margin-right:2px;}
+  .at-topic{background:var(--bluebg); color:var(--blue); border:1px solid #9cc4e8;}
+  .at-money{background:var(--redbg); color:var(--red); border:1px solid #f3c4c2;}
+  .at-tech{background:var(--greenbg); color:var(--green); border:1px solid #c2e3cc;}
+  .at-msg{background:var(--amberbg); color:var(--amber); border:1px solid #f0d9ac;}
+  .seat-tag{border-radius:5px; padding:1px 7px; font-size:10.5px; font-weight:600; margin-left:4px;}
+  .seat-hot{background:var(--redbg); color:var(--red); border:1px solid #f3c4c2;}
+  .seat-org{background:var(--bluebg); color:var(--blue); border:1px solid #9cc4e8;}
+  .seat-quant{background:var(--amberbg); color:var(--amber); border:1px solid #f0d9ac;}
+  .seat-ret{background:#f1efe9; color:var(--ink2); border:1px solid var(--line);}
+  .seat-oth{background:#f1efe9; color:var(--ink2); border:1px solid var(--line);}
   .prev-stats{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
   .prev-stat{border:1px solid var(--line); border-radius:10px; padding:8px 16px; background:#fbfaf7; text-align:center; min-width:90px;}
   .prev-stat .v{font-size:18px; font-weight:600;}
@@ -916,13 +1022,19 @@ window.BOARD_DATA = __DATA__;
         var ztstat = r["涨停统计"] ? esc(r["涨停统计"]) : (parseInt(r["连板数"] || 0, 10) + "天" + (r["连板数"] || 0) + "板");
         var an = r["_analysis"] || {};
         var tip = "延续性:" + an.total + "分\n" + an.strat + "\n风控:" + an.risk;
+        var at = r["_attr"] || {};
+        var attrPill = '';
+        if (at.main) {
+          var ac = at.main === "题材" ? "at-topic" : (at.main === "资金" ? "at-money" : (at.main === "技术" ? "at-tech" : "at-msg"));
+          attrPill = '<span class="attr-pill ' + ac + '" title="题材' + at.topic + '% / 资金' + at.money + '% / 技术' + at.tech + '% / 消息' + at.msg + '%">' + at.main + '</span>';
+        }
         html += '<tr>' +
           '<td class="code">' + esc(r["代码"]) + '</td>' +
           '<td><b>' + esc(r["名称"]) + '</b></td>' +
           '<td class="up num">' + Number(r["涨跌幅"]).toFixed(2) + '%</td>' +
           '<td class="num">' + Number(r["最新价"]).toFixed(2) + '</td>' +
           '<td>' + ztstat + '</td>' +
-          '<td>' + esc(r["_reason"] || r["所属行业"] || "-") + '</td>' +
+          '<td>' + attrPill + ' ' + esc(r["_reason"] || r["所属行业"] || "-") + '</td>' +
           '<td class="num">' + (r["换手率"] !== null && r["换手率"] !== undefined ? Number(r["换手率"]).toFixed(2) + '%' : '-') + '</td>' +
           '<td class="num">' + fmtMoney(r["封板资金"]) + '</td>' +
           '<td class="num">' + fmtSeal(r["首次封板时间"]) + ' <span class="pill ' + (sealLabel(sealToMin(r["首次封板时间"])) === "早盘" ? "pill-zt" : "pill-zb") + '">' + sealLabel(sealToMin(r["首次封板时间"])) + '</span></td>' +
@@ -969,14 +1081,20 @@ window.BOARD_DATA = __DATA__;
     }
 
     if (hasLhb || hasFund) {
+      var seats = day.seats || { stocks: {}, hot: [] };
+      var seatTagCls = { "知名游资": "seat-hot", "机构": "seat-org", "量化": "seat-quant", "散户通道": "seat-ret", "其他": "seat-oth" };
       html += '<div class="sub-grid" style="margin-top:12px;">';
       if (hasLhb) {
         html += '<div class="sub-box"><h4>龙虎榜 · 净买额 TOP（' + (ext.lhb_zt.length ? "★涨停+上榜焦点" : "当日上榜") + '）</h4>';
         var list = ext.lhb_zt.length ? ext.lhb_zt : ext.lhb_top_buy;
         list.slice(0, 8).forEach(function (r) {
           var net = Number(r["龙虎榜净买额"] || 0);
+          var st = seats.stocks[r["代码"]] || [];
+          var stHtml = st.slice(0, 2).map(function (s) {
+            return '<span class="seat-tag ' + (seatTagCls[s.tag] || "seat-oth") + '">' + s.tag + '</span>';
+          }).join('');
           html += '<div class="lhb-row"><span class="nm"><b>' + esc(r["名称"]) + '</b> <span class="c">' + esc(r["代码"]) + '</span>' +
-            (ext.lhb_zt.indexOf(r) >= 0 ? ' <span class="focus-tag">涨停</span>' : '') + '</span>' +
+            (ext.lhb_zt.indexOf(r) >= 0 ? ' <span class="focus-tag">涨停</span>' : '') + stHtml + '</span>' +
             '<span class="amt ' + (net >= 0 ? "money-in" : "money-out") + '">' + (net >= 0 ? "+" : "") + fmtMoney(net) + '</span></div>';
         });
         html += '</div>';
@@ -994,9 +1112,28 @@ window.BOARD_DATA = __DATA__;
         });
         html += '</div>';
       }
+      if (seats.hot && seats.hot.length) {
+        html += '<div class="sub-box"><h4>游资动向 · 知名游资今日动作（买卖双向）</h4>';
+        seats.hot.slice(0, 8).forEach(function (r) {
+          var cls = r.hist_n >= 3 ? "seat-hot" : "seat-oth";
+          var isBuy = r.net > 0;
+          html += '<div class="lhb-row"><span class="nm"><b>' + esc(r.name) + '</b> <span class="c">' + esc(r.code) + '</span> ' +
+            '<span class="seat-tag ' + cls + '">' + esc(shortSeat(r.seat)) + (r.hist_n ? ' · 历史' + r.hist_n + '次' : '') + '</span>' +
+            (isBuy ? ' <span class="focus-tag" style="background:var(--redbg);color:var(--red);border-color:#f3c4c2;">买</span>' : ' <span class="focus-tag" style="background:var(--greenbg);color:var(--green);border-color:#c2e3cc;">卖</span>') +
+            '</span>' +
+            '<span class="amt ' + (isBuy ? "money-in" : "money-out") + '">' + (isBuy ? "+" : "") + fmtMoney(r.net) + '</span></div>';
+        });
+        html += '</div>';
+      }
       html += '</div>';
     }
     box.innerHTML = html;
+  }
+
+  function shortSeat(s) {
+    s = String(s || "");
+    s = s.replace(/证券股份有限公司|有限责任公司|证券营业部/g, "");
+    return s.length > 14 ? s.slice(0, 13) + "…" : s;
   }
 
   var tFilters = { lv: "all", sig: "all" };

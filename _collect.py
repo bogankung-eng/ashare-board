@@ -97,6 +97,12 @@ def get_conn():
         "code TEXT, date TEXT, roe REAL, profit_margin REAL, debt_ratio REAL, "
         "cf_roa REAL, rev_growth REAL, profit_growth REAL, PRIMARY KEY(code, date))"
     )
+    # P6-A 龙虎榜席位明细
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS seat_daily("
+        "date TEXT, code TEXT, seat TEXT, buy_amt REAL, sell_amt REAL, net REAL, "
+        "reason TEXT, PRIMARY KEY(date, code, seat, reason))"
+    )
     return conn
 
 
@@ -407,6 +413,36 @@ def fetch_value(conn, date_str, now):
     print(f"[OK] 财务指标更新 {f_ok} 只", flush=True)
 
 
+def fetch_seats(conn, date_str, now):
+    """P6-A: 龙虎榜席位明细（对当日上榜股逐只拉买卖前五席位）"""
+    codes = [r[0] for r in conn.execute(
+        "SELECT DISTINCT code FROM lhb WHERE date=?", (date_str,))]
+    if not codes:
+        print("[跳过] 当日无龙虎榜数据")
+        return
+    n_ok = 0
+    for i, code in enumerate(codes):
+        df = call_with_retry(ak.stock_lhb_stock_detail_em, symbol=code, date=date_str, retries=1)
+        if df is None or len(df) == 0:
+            continue
+        rows = []
+        for _, r in df.iterrows():
+            seat = str(r.get("交易营业部名称", "")).strip()
+            reason = str(r.get("类型", "")).strip()
+            if not seat:
+                continue
+            rows.append((date_str, code, seat,
+                         _jsonable(r.get("买入金额")), _jsonable(r.get("卖出金额")),
+                         _jsonable(r.get("净额")), reason))
+        if rows:
+            conn.executemany("INSERT OR REPLACE INTO seat_daily(date,code,seat,buy_amt,sell_amt,net,reason)"
+                             " VALUES (?,?,?,?,?,?,?)", rows)
+            n_ok += 1
+        time.sleep(0.15)
+    conn.commit()
+    print(f"[OK] 席位明细 {n_ok}/{len(codes)} 只", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="A股行情看板 P0 数据采集器")
     ap.add_argument("--date", default=date.today().strftime("%Y%m%d"), help="YYYYMMDD")
@@ -477,6 +513,9 @@ def main():
     fetch_lhb(conn, date_str, now)
     fetch_fund_flow(conn, date_str, now)
     fetch_prev_zt(conn, date_str, now)
+
+    # 5) P6-A 席位明细（依赖龙虎榜已采集）
+    fetch_seats(conn, date_str, now)
 
     # 5) 日志
     conn.execute(
