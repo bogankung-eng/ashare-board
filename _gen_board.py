@@ -639,6 +639,101 @@ def analyze_movement(conn):
     return {"alerts": alerts, "n_hot": n_hot, "n_reg": n_reg, "gauge": gauge}
 
 
+def analyze_leaders(conn, d, pools, sent):
+    """P6-C 总龙/情绪龙头标识：四维评分 + 历史累积推导 + 切换信号"""
+    zt = pools["zt"]
+    if not zt:
+        return {"emo": None, "total": None, "signals": [], "score_list": []}
+    ind_count = {}
+    for r in zt:
+        ind = r.get("所属行业") or "其他"
+        ind_count[ind] = ind_count.get(ind, 0) + 1
+    max_lb = max(int(r.get("连板数") or 0) for r in zt)
+
+    scored = []
+    for r in zt:
+        lb = int(r.get("连板数") or 0)
+        ind = r.get("所属行业") or "其他"
+        # ① 连板高度 40
+        h = round(lb / max_lb * 40, 1) if max_lb else 0
+        # ② 市场辨识度 20（空间板 + 频繁涨停）
+        dis = 10 if (lb == max_lb and max_lb >= 2) else 0
+        stat = str(r.get("涨停统计") or "")
+        if "/" in stat:
+            try:
+                a, b = stat.split("/")
+                if int(a) > int(b):
+                    dis += 10
+            except ValueError:
+                pass
+        # ③ 资金号召力 20
+        fund = float(r.get("封板资金") or 0)
+        money = 10 if fund >= 100000000 else (6 if fund >= 30000000 else 3)
+        t = str(r.get("首次封板时间") or "150000")
+        hm = int(t[:2]) * 60 + int(t[2:4])
+        money += 10 if hm <= 600 else 0
+        # ④ 带动效应 20（行业家数 + 连板跟随）
+        drive = 10 if ind_count[ind] >= 5 else (6 if ind_count[ind] >= 3 else (3 if ind_count[ind] >= 2 else 0))
+        follow = 10 if any(x is not r and x.get("所属行业") == ind
+                           and int(x.get("连板数") or 0) >= 2 for x in zt) else 0
+        total = round(min(100, h + dis + money + drive + follow), 1)
+        scored.append({
+            "code": r.get("代码"), "name": r.get("名称"), "lb": lb, "ind": ind,
+            "score": total, "h": h, "dis": dis, "money": money,
+            "drive": drive, "follow": follow,
+        })
+    scored.sort(key=lambda x: (-x["score"], -x["lb"]))
+    emo = scored[0]
+
+    # 总龙头：近 5 日累计连板强度最高（周期核心标杆）
+    acc = {}
+    for dd in [r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM collect_log WHERE status='ok' AND date<=? "
+            "ORDER BY date DESC LIMIT 5", (d,))]:
+        for c, n, j in conn.execute(
+                "SELECT code, name, json_extract(data_json,'$.连板数') FROM pool_daily "
+                "WHERE date=? AND pool_type='zt'", (dd,)):
+            lbv = max(1, int(j or 1))
+            a = acc.setdefault(c, {"name": n, "acc": 0, "days": 0})
+            a["acc"] += lbv
+            a["days"] += 1
+    total = None
+    if acc:
+        top_code = max(acc, key=lambda c: (acc[c]["acc"], acc[c]["days"]))
+        top = acc[top_code]
+        today_zt = {r.get("代码") for r in zt}
+        total = {
+            "code": top_code, "name": top["name"],
+            "acc": top["acc"], "days": top["days"],
+            "today": top_code in today_zt,
+        }
+
+    # 切换信号（对比昨日）
+    signals = []
+    prev_dates = [r[0] for r in conn.execute(
+        "SELECT DISTINCT date FROM collect_log WHERE status='ok' AND date<? "
+        "ORDER BY date DESC LIMIT 1", (d,))]
+    if prev_dates:
+        pd = prev_dates[0]
+        prev_zt = conn.execute(
+            "SELECT code, name, json_extract(data_json,'$.连板数') FROM pool_daily "
+            "WHERE date=? AND pool_type='zt'", (pd,)).fetchall()
+        if prev_zt:
+            pmax = max(int(j or 1) for _, _, j in prev_zt)
+            prev_top = [x for x in prev_zt if int(x[2] or 1) == pmax][0]
+            today_codes = {r.get("代码") for r in zt}
+            if total and prev_top[0] == total["code"] and not total["today"]:
+                signals.append({"cls": "danger", "text": f"总龙头 {total['name']} 今日断板 —— 周期顶部信号，警惕退潮"})
+            elif prev_top[0] != total["code"] and total and total["today"]:
+                signals.append({"cls": "good", "text": f"新王登基：总龙头更替为 {total['name']}（近5日累计强度最高）"})
+            if prev_top[0] != emo["code"]:
+                signals.append({"cls": "warn", "text": f"情绪龙头切换：{prev_top[1]} → {emo['name']}（分歧转一致/资金轮动）"})
+    if not signals and emo:
+        signals.append({"cls": "ok", "text": f"龙头结构稳定：总龙 {total['name'] if total else '-'} · 情绪龙 {emo['name']}（{emo['lb']}板）"})
+
+    return {"emo": emo, "total": total, "signals": signals[:4], "score_list": scored[:6]}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -655,6 +750,7 @@ def build(dates):
             "hl": hl_conclusion,
             "ext": analyze_ext(ext, pools),
             "seats": analyze_seats(conn, d),
+            "leaders": analyze_leaders(conn, d, pools, sentiment(pools, breadth)),
         }
     trend = analyze_trend(conn)
     value = analyze_value(conn)
@@ -768,6 +864,9 @@ TEMPLATE = r"""<!DOCTYPE html>
   .seat-quant{background:var(--amberbg); color:var(--amber); border:1px solid #f0d9ac;}
   .seat-ret{background:#f1efe9; color:var(--ink2); border:1px solid var(--line);}
   .seat-oth{background:#f1efe9; color:var(--ink2); border:1px solid var(--line);}
+  .leader-badge{border-radius:6px; padding:2px 10px; font-size:12px; font-weight:600; margin-right:6px;}
+  .lb-total{background:var(--purplebg); color:var(--purple); border:1px solid #d8d4f0;}
+  .lb-emo{background:var(--redbg); color:var(--red); border:1px solid #f3c4c2;}
   .prev-stats{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
   .prev-stat{border:1px solid var(--line); border-radius:10px; padding:8px 16px; background:#fbfaf7; text-align:center; min-width:90px;}
   .prev-stat .v{font-size:18px; font-weight:600;}
@@ -825,6 +924,10 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div class="panel panel-short">
   <div class="card">
     <div id="sentiment"></div>
+  </div>
+
+  <div class="card">
+    <div id="leader-card"></div>
   </div>
 
   <div class="card">
@@ -1345,8 +1448,44 @@ window.BOARD_DATA = __DATA__;
     box.innerHTML = html;
   }
 
+  function renderLeaders() {
+    var ld = data.days[cur].leaders;
+    var box = document.getElementById("leader-card");
+    if (!ld || !ld.emo) { box.innerHTML = ""; return; }
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' +
+      '<div style="font-weight:600;font-size:15px;">龙头标识 · 总龙 / 情绪龙</div>' +
+      '<div style="font-size:12px;color:var(--ink2);">四维评分：连板高度40 · 辨识度20 · 资金号召力20 · 带动效应20</div></div>';
+    html += '<div class="sub-grid">';
+    var t = ld.total;
+    html += '<div class="sub-box"><h4><span class="leader-badge lb-total">总龙头</span> 周期核心标杆</h4>';
+    if (t) {
+      html += '<div style="font-size:16px;font-weight:600;margin:4px 0;">' + esc(t.name) +
+        ' <span class="c" style="font-size:12px;color:var(--ink3);">' + esc(t.code) + '</span></div>' +
+        '<div style="font-size:12px;color:var(--ink2);">近5日累计连板强度 ' + t.acc + '（' + t.days + ' 日上榜）' +
+        (t.today ? ' · <span class="pill pill-zt">今日涨停</span>' : ' · <span class="pill" style="background:var(--amberbg);color:var(--amber);border:1px solid #f0d9ac;">今日断板</span>') + '</div>';
+    } else { html += '<div style="color:var(--ink3);font-size:13px;">数据不足</div>'; }
+    html += '</div>';
+    var e = ld.emo;
+    html += '<div class="sub-box"><h4><span class="leader-badge lb-emo">情绪龙头</span> 当下风向标</h4>';
+    html += '<div style="font-size:16px;font-weight:600;margin:4px 0;">' + esc(e.name) +
+      ' <span class="c" style="font-size:12px;color:var(--ink3);">' + esc(e.code) + '</span></div>' +
+      '<div style="font-size:12px;color:var(--ink2);">' + e.lb + ' 板 · 评分 ' + e.score +
+      '（高度' + e.h + ' 辨识' + e.dis + ' 资金' + e.money + ' 带动' + (e.drive + e.follow) + '）· ' + esc(e.ind) + '</div>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div style="margin-top:12px;">';
+    (ld.signals || []).forEach(function (s) {
+      var sc = s.cls === "danger" ? "st-danger" : (s.cls === "warn" ? "st-warn" : (s.cls === "good" ? "st-good" : "st-flat"));
+      html += '<div style="padding:7px 12px;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:#fbfaf7;font-size:13px;"><span class="stage-tag ' + sc + '" style="margin-right:8px;">' + (s.cls === "danger" ? "警示" : s.cls === "warn" ? "关注" : s.cls === "good" ? "机会" : "稳定") + '</span>' + esc(s.text) + '</div>';
+    });
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
   function renderAll() {
     renderSentiment();
+    renderLeaders();
     renderThemes();
     renderExt();
     renderMovement();
