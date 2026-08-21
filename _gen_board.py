@@ -563,6 +563,82 @@ def analyze_seats(conn, date_str):
     return {"stocks": by_code, "hot": hot_act[:15], "count": len(rows)}
 
 
+def analyze_movement(conn):
+    """P6-B 异动监管监测：20日+100% / 30日+200% 阈值预警 + 监管清单叠加"""
+    # 监管事件清单（人工/半自动维护）
+    regs = {}
+    reg_file = os.path.join(BASE, "reg_watch.json")
+    if os.path.exists(reg_file):
+        try:
+            for ev in json.load(open(reg_file, encoding="utf-8")).get("events", []):
+                c = str(ev.get("code", "")).strip()
+                if c:
+                    regs.setdefault(c, []).append(ev)
+        except Exception:
+            pass
+    names = {}
+    for c, n in conn.execute("SELECT code, name FROM trend_cand ORDER BY date DESC"):
+        names.setdefault(c, n)
+    for d in [r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM collect_log WHERE status='ok' ORDER BY date DESC LIMIT 3")]:
+        for c, n in conn.execute("SELECT code, name FROM pool_daily WHERE date=?", (d,)):
+            names.setdefault(c, n)
+
+    alerts = []
+    for code, in conn.execute("SELECT DISTINCT code FROM kline"):
+        rows = conn.execute(
+            "SELECT close FROM kline WHERE code=? ORDER BY date", (code,)).fetchall()
+        if len(rows) < 31:
+            continue
+        closes = [r[0] for r in rows]
+        cur = closes[-1]
+        if not closes[-21] or not closes[-31] or cur <= 0:
+            continue
+        g20 = round((cur / closes[-21] - 1) * 100, 1)
+        g30 = round((cur / closes[-31] - 1) * 100, 1)
+        level = None
+        if g30 >= 200:
+            level = "T2"
+        elif g20 >= 100:
+            level = "T1"
+        elif g30 >= 180 or g20 >= 90:
+            level = "T0"
+        if not level:
+            continue
+        evs = regs.get(code, [])
+        if evs:
+            risk = "监管叠加"
+            risk_cls = "danger"
+        elif level == "T2":
+            risk = "高"
+            risk_cls = "danger"
+        elif level == "T1":
+            risk = "中"
+            risk_cls = "warn"
+        else:
+            risk = "观察"
+            risk_cls = "flat"
+        alerts.append({
+            "code": code, "name": names.get(code, code),
+            "g20": g20, "g30": g30, "level": level, "risk": risk,
+            "risk_cls": risk_cls,
+            "regs": [{"type": e.get("type", ""), "date": e.get("date", ""),
+                      "note": e.get("note", "")} for e in evs],
+        })
+    alerts.sort(key=lambda x: -max(x["g20"], x["g30"]))
+
+    # 风险仪表
+    n_hot = sum(1 for a in alerts if a["level"] in ("T1", "T2"))
+    n_reg = sum(1 for a in alerts if a["risk_cls"] == "danger")
+    if n_hot >= 8 or n_reg >= 3:
+        gauge = {"text": "异动密集/监管叠加，警惕情绪过热与退潮加速", "cls": "danger"}
+    elif n_hot >= 3:
+        gauge = {"text": "存在高位异动标的，注意兑现风险", "cls": "warn"}
+    else:
+        gauge = {"text": "异动水平正常", "cls": "ok"}
+    return {"alerts": alerts, "n_hot": n_hot, "n_reg": n_reg, "gauge": gauge}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -582,8 +658,9 @@ def build(dates):
         }
     trend = analyze_trend(conn)
     value = analyze_value(conn)
+    movement = analyze_movement(conn)
     conn.close()
-    return {"dates": dates, "days": days, "trend": trend, "value": value}
+    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -756,6 +833,10 @@ TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="card">
     <div id="ext-card"></div>
+  </div>
+
+  <div class="card">
+    <div id="mov-card"></div>
   </div>
 
   <div class="card">
@@ -1231,10 +1312,44 @@ window.BOARD_DATA = __DATA__;
     box.innerHTML = html;
   }
 
+  function renderMovement() {
+    var mv = data.movement;
+    var box = document.getElementById("mov-card");
+    if (!mv || !mv.alerts || !mv.alerts.length) {
+      box.innerHTML = '<div style="font-weight:600;font-size:15px;margin-bottom:8px;">异动监管监测</div><div class="empty">当前候选池无异动标的（20日+100% / 30日+200% 阈值）</div>';
+      return;
+    }
+    var gc = mv.gauge.cls === "danger" ? "st-danger" : (mv.gauge.cls === "warn" ? "st-warn" : "st-good");
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">' +
+      '<div style="font-weight:600;font-size:15px;">异动监管监测</div>' +
+      '<span class="stage-tag ' + gc + '">' + esc(mv.gauge.text) + '</span></div>';
+    html += '<table><tr><th>代码</th><th>名称</th><th>20日涨幅</th><th>30日涨幅</th><th>触发</th><th>风险</th><th>监管动态</th></tr>';
+    mv.alerts.slice(0, 12).forEach(function (a) {
+      var lvCls = a.level === "T2" ? "st-danger" : (a.level === "T1" ? "st-warn" : "st-flat");
+      var rkCls = a.risk_cls === "danger" ? "st-danger" : (a.risk_cls === "warn" ? "st-warn" : "st-flat");
+      var regHtml = a.regs.length ? a.regs.map(function (e) {
+        return '<span class="seat-tag seat-org">' + esc(e.type) + (e.date ? ' ' + esc(e.date) : '') + '</span>';
+      }).join('') : '<span style="color:var(--ink3);">-</span>';
+      html += '<tr>' +
+        '<td class="code">' + esc(a.code) + '</td>' +
+        '<td><b>' + esc(a.name) + '</b></td>' +
+        '<td class="num ' + (a.g20 >= 0 ? "money-in" : "money-out") + '">+' + a.g20 + '%</td>' +
+        '<td class="num ' + (a.g30 >= 0 ? "money-in" : "money-out") + '">+' + a.g30 + '%</td>' +
+        '<td><span class="stage-tag ' + lvCls + '">' + a.level + '</span></td>' +
+        '<td><span class="stage-tag ' + rkCls + '">' + a.risk + '</span></td>' +
+        '<td>' + regHtml + '</td>' +
+        '</tr>';
+    });
+    html += '</table>';
+    html += '<div style="font-size:11.5px;color:var(--ink3);margin-top:8px;">触发口径：20 交易日内累计涨幅 ≥100% 为 T1，≥90% 为 T0 观察；30 日 ≥200% 为 T2，≥180% 为 T0。监管动态清单（reg_watch.json）人工维护，命中标的自动升级「监管叠加」风险。</div>';
+    box.innerHTML = html;
+  }
+
   function renderAll() {
     renderSentiment();
     renderThemes();
     renderExt();
+    renderMovement();
     renderTrend();
     renderValue();
     buildIndTags();
