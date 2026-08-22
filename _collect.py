@@ -303,6 +303,10 @@ def fetch_kline(conn, date_str, now):
                 "WHERE date=? AND pool_type='zt'", (d,)):
             if (j or 0) >= 2:
                 codes.setdefault(c, n)
+    # 龙虎榜股补充（席位胜率画像需要其 K 线）
+    for c, n in conn.execute(
+            "SELECT DISTINCT lhb.code, lhb.name FROM lhb WHERE date=?", (date_str,)):
+        codes.setdefault(c, n)
 
     if not codes:
         print("[跳过] 候选池为空")

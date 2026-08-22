@@ -540,15 +540,27 @@ def analyze_seats(conn, date_str):
     by_code = {}
     for (code, _seat), item in stocks.items():
         by_code.setdefault(code, []).append(item)
-    # 席位历史活跃度（不含当日）
+    # 席位历史活跃度（不含当日）+ 胜率画像（K 线算次日涨跌）
     hist = {}
-    for code, seat, net in conn.execute(
-            "SELECT code, seat, net FROM seat_daily WHERE date < ?", (date_str,)):
+    for code, seat, net, d in conn.execute(
+            "SELECT code, seat, net, date FROM seat_daily WHERE date < ?", (date_str,)):
         s = str(seat)
-        h = hist.setdefault(s, {"n": 0, "buy_n": 0})
+        h = hist.setdefault(s, {"n": 0, "buy_n": 0, "win": 0, "avg": []})
         h["n"] += 1
         if net and net > 0:
             h["buy_n"] += 1
+            # 次日涨跌：该股 d 后首个交易日收盘 vs d 日收盘
+            nxt_r = conn.execute(
+                "SELECT close FROM kline WHERE code=? AND date>? ORDER BY date LIMIT 1",
+                (code, d)).fetchone()
+            cur_r = conn.execute(
+                "SELECT close FROM kline WHERE code=? AND date=?",
+                (code, d)).fetchone()
+            if nxt_r and cur_r and cur_r[0]:
+                chg = (nxt_r[0] / cur_r[0] - 1) * 100
+                if chg > 0:
+                    h["win"] += 1
+                h["avg"].append(chg)
     # 知名游资当日动向（买/卖双向，按金额绝对值排序）
     hot_act = []
     names = {r[0]: r[1] for r in conn.execute(
@@ -556,11 +568,12 @@ def analyze_seats(conn, date_str):
     for code, seats_l in by_code.items():
         for s in seats_l:
             if s["tag"] == "知名游资" and s["net"] != 0:
-                h = hist.get(s["seat"], {"n": 0, "buy_n": 0})
+                h = hist.get(s["seat"], {"n": 0, "buy_n": 0, "win": 0, "avg": []})
                 hot_act.append({
                     "seat": s["seat"], "code": code,
                     "name": names.get(code, code), "net": s["net"],
                     "hist_n": h["n"],
+                    "hist_win": round(h["win"] / h["buy_n"] * 100) if h["buy_n"] else None,
                 })
     hot_act.sort(key=lambda x: -abs(x["net"]))
     return {"stocks": by_code, "hot": hot_act[:15], "count": len(rows)}
@@ -1369,7 +1382,8 @@ window.BOARD_DATA = __DATA__;
           var cls = r.hist_n >= 3 ? "seat-hot" : "seat-oth";
           var isBuy = r.net > 0;
           html += '<div class="lhb-row"><span class="nm"><b>' + esc(r.name) + '</b> <span class="c">' + esc(r.code) + '</span> ' +
-            '<span class="seat-tag ' + cls + '">' + esc(shortSeat(r.seat)) + (r.hist_n ? ' · 历史' + r.hist_n + '次' : '') + '</span>' +
+            '<span class="seat-tag ' + cls + '">' + esc(shortSeat(r.seat)) + (r.hist_n ? ' · ' + r.hist_n + '次' : '') +
+            (r.hist_win !== null && r.hist_win !== undefined ? ' · 胜率' + r.hist_win + '%' : '') + '</span>' +
             (isBuy ? ' <span class="focus-tag" style="background:var(--redbg);color:var(--red);border-color:#f3c4c2;">买</span>' : ' <span class="focus-tag" style="background:var(--greenbg);color:var(--green);border-color:#c2e3cc;">卖</span>') +
             '</span>' +
             '<span class="amt ' + (isBuy ? "money-in" : "money-out") + '">' + (isBuy ? "+" : "") + fmtMoney(r.net) + '</span></div>';

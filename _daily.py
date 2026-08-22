@@ -71,6 +71,9 @@ def main():
         print("!!! 推送失败"); return 1
 
     print("== 完成：线上看板 https://ashare-board.bogan-kung.workers.dev/ 已更新 ==")
+
+    print("\n========== 收盘简报 ==========")
+    run([PY, os.path.join(BASE, "_brief.py")])
     return 0
 
 
