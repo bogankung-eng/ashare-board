@@ -1662,7 +1662,8 @@ window.BOARD_DATA = __DATA__;
     return "https://quote.eastmoney.com/" + pre + c + ".html";
   }
   function nameLink(r) {
-    return '<a href="' + emLink(r["代码"]) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--ink3);" title="点击查看分时/日K">' + esc(r["名称"]) + '</a>';
+    var name = esc(r["名称"] || r["代码"] || "");
+    return '<a href="' + emLink(r["代码"]) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--ink3);" title="点击查看分时/日K">' + name + '</a>';
   }
 
   function renderDragons() {
