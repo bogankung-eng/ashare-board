@@ -99,7 +99,7 @@ def analyze_trend(conn):
         lv = "强" if score >= 9 else ("中" if score >= 6 else "弱")
 
         pool.append({
-            "code": code, "name": names.get(code, code),
+            "code": code, "名称": names.get(code, code),
             "close": round(cur, 2), "pct20": round(pct20, 2), "rs": rs,
             "dist52": round(dist52, 2), "bull": bull, "high60": high60,
             "pullback": pullback, "breakout": breakout, "score": score,
@@ -160,7 +160,7 @@ def sentiment(pools, breadth):
     return {
         "zt": zt_n, "dt": dt_n, "zb": zb_n, "zbrate": zbrate, "max_lb": max_lb,
         "tag": tag, "tag_cls": cls,
-        "top": [{"name": r.get("名称"), "code": r.get("代码"),
+        "top": [{"名称": r.get("名称"), "code": r.get("代码"),
                  "lb": int(r.get("连板数") or 0), "ztstat": r.get("涨停统计")} for r in top],
     }
 
@@ -328,10 +328,10 @@ def analyze_themes(pools, sent):
             hl = ""
             hl_cls = ""
         themes.append({
-            "name": name, "count": len(arr), "max_lb": max_lb,
+            "名称": name, "count": len(arr), "max_lb": max_lb,
             "lb_names": "/".join(str(x) for x in sorted(set(lbs), reverse=True)),
             "total_seal": round(total_seal / 100000000, 2),
-            "leader": {"name": leader.get("名称"), "code": leader.get("代码"),
+            "leader": {"名称": leader.get("名称"), "code": leader.get("代码"),
                        "lb": int(leader.get("连板数") or 0)},
             "stage": stage, "stage_cls": cls,
             "hl": hl, "hl_cls": hl_cls,
@@ -345,9 +345,9 @@ def analyze_themes(pools, sent):
     if high or low:
         parts = []
         if high:
-            parts.append("高位区: " + "、".join(t["name"] for t in high[:4]) + " —— 注意分歧兑现风险")
+            parts.append("高位区: " + "、".join(t["名称"] for t in high[:4]) + " —— 注意分歧兑现风险")
         if low:
-            parts.append("低位启动: " + "、".join(t["name"] for t in low[:4]) + " —— 观察承接与扩散")
+            parts.append("低位启动: " + "、".join(t["名称"] for t in low[:4]) + " —— 观察承接与扩散")
         conclusion = {
             "text": "；".join(parts),
             "watch": "明日核心变量: 高位龙头分歧是否扩散、低位新题材能否走出首板晋级",
@@ -508,7 +508,7 @@ def analyze_value(conn):
             lv_cls = "lv-strong" if lv == "优" else ("lv-mid" if lv == "良" else "lv-weak")
 
             pool.append({
-                "code": code, "name": name, "close": round(cur_close, 2),
+                "code": code, "名称": name, "close": round(cur_close, 2),
                 "pe_ttm": round(cur_pe, 1) if cur_pe else None,
                 "pb": round(cur_pb, 2) if cur_pb else None,
                 "pe_pct": pe_pct, "pb_pct": pb_pct,
@@ -601,7 +601,7 @@ def analyze_seats(conn, date_str):
                 h = hist.get(s["seat"], {"n": 0, "buy_n": 0, "win": 0, "avg": []})
                 hot_act.append({
                     "seat": s["seat"], "code": code,
-                    "name": names.get(code, code), "net": s["net"],
+                    "名称": names.get(code, code), "net": s["net"],
                     "hist_n": h["n"],
                     "hist_win": round(h["win"] / h["buy_n"] * 100) if h["buy_n"] else None,
                 })
@@ -665,7 +665,7 @@ def analyze_movement(conn):
             risk = "观察"
             risk_cls = "flat"
         alerts.append({
-            "code": code, "name": names.get(code, code),
+            "code": code, "名称": names.get(code, code),
             "g20": g20, "g30": g30, "level": level, "risk": risk,
             "risk_cls": risk_cls,
             "regs": [{"type": e.get("type", ""), "date": e.get("date", ""),
@@ -724,7 +724,7 @@ def analyze_leaders(conn, d, pools, sent):
                            and int(x.get("连板数") or 0) >= 2 for x in zt) else 0
         total = round(min(100, h + dis + money + drive + follow), 1)
         scored.append({
-            "code": r.get("代码"), "name": r.get("名称"), "lb": lb, "ind": ind,
+            "code": r.get("代码"), "名称": r.get("名称"), "lb": lb, "ind": ind,
             "score": total, "h": h, "dis": dis, "money": money,
             "drive": drive, "follow": follow,
         })
@@ -740,7 +740,7 @@ def analyze_leaders(conn, d, pools, sent):
                 "SELECT code, name, json_extract(data_json,'$.连板数') FROM pool_daily "
                 "WHERE date=? AND pool_type='zt'", (dd,)):
             lbv = max(1, int(j or 1))
-            a = acc.setdefault(c, {"name": n, "acc": 0, "days": 0})
+            a = acc.setdefault(c, {"名称": n, "acc": 0, "days": 0})
             a["acc"] += lbv
             a["days"] += 1
     total = None
@@ -749,7 +749,7 @@ def analyze_leaders(conn, d, pools, sent):
         top = acc[top_code]
         today_zt = {r.get("代码") for r in zt}
         total = {
-            "code": top_code, "name": top["name"],
+            "code": top_code, "名称": top["名称"],
             "acc": top["acc"], "days": top["days"],
             "today": top_code in today_zt,
         }
@@ -769,13 +769,13 @@ def analyze_leaders(conn, d, pools, sent):
             prev_top = [x for x in prev_zt if int(x[2] or 1) == pmax][0]
             today_codes = {r.get("代码") for r in zt}
             if total and prev_top[0] == total["code"] and not total["today"]:
-                signals.append({"cls": "danger", "text": f"总龙头 {total['name']} 今日断板 —— 周期顶部信号，警惕退潮"})
+                signals.append({"cls": "danger", "text": f"总龙头 {total['名称']} 今日断板 —— 周期顶部信号，警惕退潮"})
             elif prev_top[0] != total["code"] and total and total["today"]:
-                signals.append({"cls": "good", "text": f"新王登基：总龙头更替为 {total['name']}（近5日累计强度最高）"})
+                signals.append({"cls": "good", "text": f"新王登基：总龙头更替为 {total['名称']}（近5日累计强度最高）"})
             if prev_top[0] != emo["code"]:
-                signals.append({"cls": "warn", "text": f"情绪龙头切换：{prev_top[1]} → {emo['name']}（分歧转一致/资金轮动）"})
+                signals.append({"cls": "warn", "text": f"情绪龙头切换：{prev_top[1]} → {emo['名称']}（分歧转一致/资金轮动）"})
     if not signals and emo:
-        signals.append({"cls": "ok", "text": f"龙头结构稳定：总龙 {total['name'] if total else '-'} · 情绪龙 {emo['name']}（{emo['lb']}板）"})
+        signals.append({"cls": "ok", "text": f"龙头结构稳定：总龙 {total['名称'] if total else '-'} · 情绪龙 {emo['名称']}（{emo['lb']}板）"})
 
     return {"emo": emo, "total": total, "signals": signals[:4], "score_list": scored[:6]}
 
@@ -830,7 +830,7 @@ def analyze_dragons(pools):
         if score < 6:
             continue
         cands.append({
-            "code": r.get("代码"), "name": r.get("名称"), "lb": lb, "ind": ind,
+            "code": r.get("代码"), "名称": r.get("名称"), "lb": lb, "ind": ind,
             "score": score, "v": v, "s2": s2, "s3": s3, "s4": s4, "s5": s5,
             "turn": round(turn, 1), "fund": fund, "zb": zb,
         })
@@ -1216,7 +1216,7 @@ window.BOARD_DATA = __DATA__;
       ["涨停", s.zt, b && b.real_zt !== null && b.real_zt !== undefined ? "真实涨停 " + b.real_zt : "连板高度 " + (s.max_lb || 0) + "板"],
       ["跌停", s.dt, b && b.real_dt ? "真实跌停 " + b.real_dt : ""],
       ["炸板", s.zb, "炸板率 " + s.zbrate + "%"],
-      ["连板高度", s.max_lb + "板", s.top.length ? (s.top[0].name + " " + s.top[0].ztstat) : "无连板"],
+      ["连板高度", s.max_lb + "板", s.top.length ? (s.top[0]['名称'] + " " + s.top[0].ztstat) : "无连板"],
       ["上涨家数", b ? b.up : "-", b ? "占比 " + (b.total ? Math.round(b.up / b.total * 100) : 0) + "%" : ""],
       ["下跌家数", b ? b.down : "-", b ? "占比 " + (b.total ? Math.round(b.down / b.total * 100) : 0) + "%" : ""],
       ["活跃度", b && b.activity ? b.activity : "-", "市场参与热度"],
@@ -1297,11 +1297,11 @@ window.BOARD_DATA = __DATA__;
     html += '<div class="theme-grid">';
     day.themes.forEach(function (t) {
       html += '<div class="theme-card">' +
-        '<div><span class="tname">' + esc(t.name) + '</span>' +
+        '<div><span class="tname">' + esc(t['名称']) + '</span>' +
         '<span class="stage-tag st-' + t.stage_cls + '">' + t.stage + '</span>' +
         (t.hl ? '<span class="hl-tag hl-' + t.hl_cls + '">' + t.hl + '</span>' : '') + '</div>' +
         '<div class="tmeta">涨停 <b>' + t.count + '</b> 家 · 高度 ' + t.max_lb + '板 (' + t.lb_names + ')<br>' +
-        '封板资金 ' + t.total_seal + '亿 · 龙头 <b>' + esc(t.leader.name) + '</b> (' + t.leader.lb + '板)</div>' +
+        '封板资金 ' + t.total_seal + '亿 · 龙头 <b>' + esc(t.leader['名称']) + '</b> (' + t.leader.lb + '板)</div>' +
         '</div>';
     });
     html += '</div>';
@@ -1608,7 +1608,7 @@ window.BOARD_DATA = __DATA__;
       }).join('') : '<span style="color:var(--ink3);">-</span>';
       html += '<tr>' +
         '<td class="code">' + esc(a.code) + '</td>' +
-        '<td><b>' + esc(a.name) + '</b></td>' +
+        '<td><b>' + esc(a['名称']) + '</b></td>' +
         '<td class="num ' + (a.g20 >= 0 ? "money-in" : "money-out") + '">+' + a.g20 + '%</td>' +
         '<td class="num ' + (a.g30 >= 0 ? "money-in" : "money-out") + '">+' + a.g30 + '%</td>' +
         '<td><span class="stage-tag ' + lvCls + '">' + a.level + '</span></td>' +
@@ -1632,7 +1632,7 @@ window.BOARD_DATA = __DATA__;
     var t = ld.total;
     html += '<div class="sub-box"><h4><span class="leader-badge lb-total">总龙头</span> 周期核心标杆</h4>';
     if (t) {
-      html += '<div style="font-size:16px;font-weight:600;margin:4px 0;">' + esc(t.name) +
+      html += '<div style="font-size:16px;font-weight:600;margin:4px 0;">' + esc(t['名称']) +
         ' <span class="c" style="font-size:12px;color:var(--ink3);">' + esc(t.code) + '</span></div>' +
         '<div style="font-size:12px;color:var(--ink2);">近5日累计连板强度 ' + t.acc + '（' + t.days + ' 日上榜）' +
         (t.today ? ' · <span class="pill pill-zt">今日涨停</span>' : ' · <span class="pill" style="background:var(--amberbg);color:var(--amber);border:1px solid #f0d9ac;">今日断板</span>') + '</div>';
@@ -1640,7 +1640,7 @@ window.BOARD_DATA = __DATA__;
     html += '</div>';
     var e = ld.emo;
     html += '<div class="sub-box"><h4><span class="leader-badge lb-emo">情绪龙头</span> 当下风向标</h4>';
-    html += '<div style="font-size:16px;font-weight:600;margin:4px 0;">' + esc(e.name) +
+    html += '<div style="font-size:16px;font-weight:600;margin:4px 0;">' + esc(e['名称']) +
       ' <span class="c" style="font-size:12px;color:var(--ink3);">' + esc(e.code) + '</span></div>' +
       '<div style="font-size:12px;color:var(--ink2);">' + e.lb + ' 板 · 评分 ' + e.score +
       '（高度' + e.h + ' 辨识' + e.dis + ' 资金' + e.money + ' 带动' + (e.drive + e.follow) + '）· ' + esc(e.ind) + '</div>';
