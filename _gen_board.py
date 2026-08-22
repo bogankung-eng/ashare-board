@@ -148,11 +148,11 @@ def sentiment(pools, breadth):
 
     if dt_n >= 20 or (zt_n <= 30 and zbrate >= 50):
         tag, cls = "全面退潮", "danger"
-    elif zbrate >= 40 or dt_n >= 10:
+    elif zbrate >= 35 or dt_n >= 10:
         tag, cls = "局部退潮", "warn"
     elif zt_n >= 80 and zbrate < 25 and max_lb >= 4:
         tag, cls = "情绪加强", "good"
-    elif zt_n >= 50 and zbrate < 40:
+    elif zt_n >= 50 and zbrate < 30 and max_lb >= 3:
         tag, cls = "情绪修复", "good"
     else:
         tag, cls = "震荡混沌", "flat"
@@ -165,11 +165,14 @@ def sentiment(pools, breadth):
     }
 
 
-def analyze_stocks(pools):
-    """个股延续性评分 + 次日策略（规则引擎 v1）
+def analyze_stocks(pools, sent=None):
+    """个股延续性评分 + 次日策略（规则引擎 v1，情绪系数 v2）
     四维评分（各 0-3 分）：封板强度 / 封板资金 / 换手质量 / 位置 / 地位
-    总分 15：强(≥11) / 中(8-10.5) / 弱(<8)"""
+    总分 15：强(≥11) / 中(8-10.5) / 弱(<8)；退潮/震荡期收紧阈值（回测复盘优化）"""
     zt = pools["zt"]
+    strict = sent is not None and sent.get("tag") in ("全面退潮", "局部退潮", "震荡混沌")
+    th_strong = 12.5 if strict else 11
+    th_mid = 9 if strict else 8
     # 行业地位：板块内按连板数+封板资金排序取前 1/3
     ind_count = {}
     for r in zt:
@@ -233,9 +236,9 @@ def analyze_stocks(pools):
             s_score = 1
 
         total = seal + f_score + t_score + p_score + s_score
-        if total >= 11:
+        if total >= th_strong:
             level, level_cls = "强", "lv-strong"
-        elif total >= 8:
+        elif total >= th_mid:
             level, level_cls = "中", "lv-mid"
         else:
             level, level_cls = "弱", "lv-weak"
@@ -797,18 +800,19 @@ def build(dates):
     days = {}
     for d in dates:
         pools, breadth = load_day(conn, d)
-        analyze_stocks(pools)
-        themes, hl_conclusion = analyze_themes(pools, sentiment(pools, breadth))
+        sent = sentiment(pools, breadth)
+        analyze_stocks(pools, sent)
+        themes, hl_conclusion = analyze_themes(pools, sent)
         ext = load_ext(conn, d)
         days[d] = {
             "breadth": breadth,
-            "sent": sentiment(pools, breadth),
+            "sent": sent,
             "pools": pools,
             "themes": themes,
             "hl": hl_conclusion,
             "ext": analyze_ext(ext, pools),
             "seats": analyze_seats(conn, d),
-            "leaders": analyze_leaders(conn, d, pools, sentiment(pools, breadth)),
+            "leaders": analyze_leaders(conn, d, pools, sent),
             "dragons": analyze_dragons(pools),
         }
     trend = analyze_trend(conn)
