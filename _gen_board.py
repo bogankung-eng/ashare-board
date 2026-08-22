@@ -23,6 +23,112 @@ IDX = {
 }
 
 
+def analyze_lowpos(conn):
+    """低位潜力股：位置低(距52周高回落≥25%) + 近期活跃(20日涨停/放量) + 基本面(ROE>0) + 题材热度
+    全用现有数据（kline/pool_daily/fin_hist/value_hist），按行业分组输出"""
+    # 行业映射（近 10 日涨停/炸板池）+ 题材热度（近 5 日行业涨停家数）
+    ind_map = {}
+    ind_heat = {}
+    dates_all = [r[0] for r in conn.execute(
+        "SELECT DISTINCT date FROM collect_log WHERE status='ok' ORDER BY date DESC LIMIT 30")]
+    for d in dates_all[:10]:
+        for c, n, j in conn.execute(
+                "SELECT code, name, json_extract(data_json,'$.所属行业') FROM pool_daily "
+                "WHERE date=? AND pool_type IN ('zt','zb')", (d,)):
+            if j:
+                ind_map.setdefault(c, j)
+    for d in dates_all[:5]:
+        for j in conn.execute(
+                "SELECT DISTINCT json_extract(data_json,'$.所属行业') FROM pool_daily "
+                "WHERE date=? AND pool_type='zt'", (d,)):
+            ind = j[0]
+            if ind:
+                ind_heat[ind] = ind_heat.get(ind, 0) + 1
+    # 近 20 日涨停史
+    zt_days = {}
+    for d in dates_all[:20]:
+        for c, in conn.execute(
+                "SELECT code FROM pool_daily WHERE date=? AND pool_type='zt'", (d,)):
+            zt_days.setdefault(c, []).append(d)
+
+    names = {}
+    for c, n in conn.execute("SELECT code, name FROM trend_cand ORDER BY date DESC"):
+        names.setdefault(c, n)
+    for d in dates_all[:3]:
+        for c, n in conn.execute("SELECT code, name FROM pool_daily WHERE date=?", (d,)):
+            names.setdefault(c, n)
+
+    cands = []
+    for code, in conn.execute("SELECT DISTINCT code FROM kline"):
+        rows = conn.execute(
+            "SELECT close, volume FROM kline WHERE code=? ORDER BY date", (code,)).fetchall()
+        if len(rows) < 130:
+            continue
+        closes = [r[0] for r in rows]
+        vols = [r[1] for r in rows]
+        cur = closes[-1]
+        high52 = max(closes)
+        dist52 = (cur / high52 - 1) * 100
+        if dist52 > -15:
+            continue  # 距高点回落不足，不算低位
+        # 近期活跃：20 日有涨停 或 近 10 日放量（量比 > 2）
+        zt20 = bool(zt_days.get(code))
+        vol_ratio = max(vols[-10:]) / (sum(vols[-30:-10]) / 20) if len(vols) >= 30 else 1
+        active = zt20 or vol_ratio > 2
+        if not active:
+            continue
+        # 基本面（可选：有财务数据加分，无则跳过——kline 池大部分无 fin_hist）
+        roe_v = None
+        roe = conn.execute(
+            "SELECT roe FROM fin_hist WHERE code=? AND roe IS NOT NULL ORDER BY date DESC LIMIT 1",
+            (code,)).fetchone()
+        if roe:
+            roe_v = roe[0]
+        mv_v = None
+        mv = conn.execute(
+            "SELECT total_mv FROM value_hist WHERE code=? ORDER BY date DESC LIMIT 1",
+            (code,)).fetchone()
+        if mv and mv[0]:
+            mv_v = mv[0]
+            if mv_v < 5e9:
+                continue  # 市值 < 50 亿排除（仅当有市值数据时）
+        # 潜力评分 10
+        score = 0
+        if -40 <= dist52 <= -15:
+            score += 3  # 适中低位有空间
+        else:
+            score += 1  # 深跌（价值陷阱风险）
+        if zt20:
+            score += 2
+        if vol_ratio > 2:
+            score += 1
+        if roe_v is not None:
+            if roe_v >= 10:
+                score += 2
+            elif roe_v > 0:
+                score += 1
+        ind = ind_map.get(code, "其他")
+        score += min(3, ind_heat.get(ind, 0))
+        cands.append({
+            "code": code, "名称": names.get(code, code), "ind": ind,
+            "dist52": round(dist52, 1), "score": score,
+            "roe": round(roe_v, 1) if roe_v is not None else None,
+            "mv": round(mv_v / 1e8, 0) if mv_v else None,
+            "zt_days": len(zt_days.get(code, [])),
+            "vol": round(vol_ratio, 1),
+        })
+    cands.sort(key=lambda x: -x["score"])
+    # 按行业分组
+    groups = {}
+    for c in cands:
+        groups.setdefault(c["ind"], []).append(c)
+    out = []
+    for ind, lst in sorted(groups.items(), key=lambda kv: -max(x["score"] for x in kv[1])):
+        out.append({"ind": ind, "heat": ind_heat.get(ind, 0),
+                    "stocks": lst[:6], "n": len(lst)})
+    return {"groups": out[:12], "total": len(cands)}
+
+
 def analyze_trend(conn):
     """P4 中长线趋势分析：指数状态 + 趋势池（均线多头/新高/RS/回踩/突破）+ 评分"""
     # 1) 指数趋势状态
@@ -861,8 +967,9 @@ def build(dates):
     trend = analyze_trend(conn)
     value = analyze_value(conn)
     movement = analyze_movement(conn)
+    lowpos = analyze_lowpos(conn)
     conn.close()
-    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement}
+    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement, "lowpos": lowpos}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -1584,6 +1691,28 @@ window.BOARD_DATA = __DATA__;
       });
       html += '</table>';
     }
+    // 低位潜力股（行业分组）
+    if (data.lowpos && data.lowpos.groups && data.lowpos.groups.length) {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:14px 0 8px;">' +
+        '<div style="font-weight:600;font-size:14px;">🌱 低位潜力股 <span style="font-size:12px;color:var(--ink2);font-weight:400;">距52周高回落25%+ · 近期活跃 · 基本面不烂 · ' + data.lowpos.total + ' 只</span></div>' +
+        '<div style="font-size:12px;color:var(--ink2);">评分：低位3 + 活跃3 + ROE2 + 题材热度3</div></div>';
+      html += '<div class="theme-grid">';
+      data.lowpos.groups.forEach(function (g) {
+        html += '<div class="theme-card"><div class="tname">' + esc(g.ind) +
+          ' <span class="stage-tag st-good" style="margin-left:6px;">热度' + g.heat + '</span>' +
+          ' <span style="font-size:11px;color:var(--ink2);font-weight:400;">' + g.n + ' 只</span></div><div class="tmeta">';
+        g.stocks.forEach(function (s) {
+          var mvTxt = s.mv !== null && s.mv !== undefined ? (s.mv >= 10000 ? (s.mv / 10000).toFixed(2) + '万亿' : s.mv.toFixed(0) + '亿') : '-';
+          html += '<div style="padding:2px 0;display:flex;justify-content:space-between;gap:6px;align-items:center;">' +
+            '<span>' + nameLink(s) + '</span>' +
+            '<span style="color:var(--ink3);font-size:11px;">回落' + s.dist52 + '% · ROE' + s.roe + '% · ' + mvTxt + '</span>' +
+            '<span class="pill-lv ' + (s.score >= 8 ? "lv-strong" : s.score >= 6 ? "lv-mid" : "lv-weak") + '">' + s.score + '</span></div>';
+        });
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+
     html += '<div style="font-size:11.5px;color:var(--ink3);margin-top:10px;">估值分位 = 当前 PE(TTM)/PB 在近 5 年中的百分位（越低越便宜）。股息视角待补。</div>';
     box.innerHTML = html;
   }
