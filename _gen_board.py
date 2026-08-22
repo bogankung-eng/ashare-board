@@ -734,6 +734,64 @@ def analyze_leaders(conn, d, pools, sent):
     return {"emo": emo, "total": total, "signals": signals[:4], "score_list": scored[:6]}
 
 
+def analyze_dragons(pools):
+    """P6-D 潜龙识别：五维评分（量价3/题材2/梯队2/承接2/分歧转一致1）
+    排除：一字板（换手<1）、空间板（已为龙头）。评分 ≥6 进潜龙候选池。"""
+    zt = pools["zt"]
+    if not zt:
+        return {"pool": []}
+    ind_count = {}
+    for r in zt:
+        ind = r.get("所属行业") or "其他"
+        ind_count[ind] = ind_count.get(ind, 0) + 1
+    max_lb = max(int(r.get("连板数") or 0) for r in zt)
+
+    cands = []
+    for r in zt:
+        lb = int(r.get("连板数") or 0)
+        ind = r.get("所属行业") or "其他"
+        turn = float(r.get("换手率") or 0)
+        fund = float(r.get("封板资金") or 0)
+        zb = int(r.get("炸板次数") or 0)
+        if lb >= max_lb or lb > 3:
+            continue  # 空间板/高位板排除
+        if turn < 1:
+            continue  # 一字板排除（无分歧转一致特征）
+        # ① 量价结构健康度（0-3）
+        v = 0
+        if 3 <= turn <= 15:
+            v += 1
+        t = str(r.get("首次封板时间") or "150000")
+        hm = int(t[:2]) * 60 + int(t[2:4])
+        if hm <= 600:
+            v += 1  # 早盘封板，资金坚决
+        if zb == 0:
+            v += 1  # 干净板
+        # ② 题材新颖性与空间（0-2）：启动扩散期最佳（3-8 家），高潮排除
+        if 3 <= ind_count[ind] <= 8:
+            s2 = 2
+        elif ind_count[ind] <= 2:
+            s2 = 1
+        else:
+            s2 = 0
+        # ③ 连板梯队位置（0-2）：2 板卡位最佳
+        s3 = 2 if lb == 2 else (1 if lb == 1 else 0)
+        # ④ 资金承接（0-2）
+        s4 = 2 if fund >= 100000000 else (1 if fund >= 30000000 else 0)
+        # ⑤ 分歧转一致（0-1）：炸板回封 = 直接信号；高换手充分换手
+        s5 = 1 if (1 <= zb <= 3) else (1 if 10 <= turn <= 20 else 0)
+        score = v + s2 + s3 + s4 + s5
+        if score < 6:
+            continue
+        cands.append({
+            "code": r.get("代码"), "name": r.get("名称"), "lb": lb, "ind": ind,
+            "score": score, "v": v, "s2": s2, "s3": s3, "s4": s4, "s5": s5,
+            "turn": round(turn, 1), "fund": fund, "zb": zb,
+        })
+    cands.sort(key=lambda x: (-x["score"], -x["lb"]))
+    return {"pool": cands[:15]}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -751,6 +809,7 @@ def build(dates):
             "ext": analyze_ext(ext, pools),
             "seats": analyze_seats(conn, d),
             "leaders": analyze_leaders(conn, d, pools, sentiment(pools, breadth)),
+            "dragons": analyze_dragons(pools),
         }
     trend = analyze_trend(conn)
     value = analyze_value(conn)
@@ -928,6 +987,10 @@ TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="card">
     <div id="leader-card"></div>
+  </div>
+
+  <div class="card">
+    <div id="dragon-card"></div>
   </div>
 
   <div class="card">
@@ -1214,7 +1277,7 @@ window.BOARD_DATA = __DATA__;
         }
         html += '<tr>' +
           '<td class="code">' + esc(r["代码"]) + '</td>' +
-          '<td><b>' + esc(r["名称"]) + '</b></td>' +
+          '<td>' + nameLink(r) + '</td>' +
           '<td class="up num">' + Number(r["涨跌幅"]).toFixed(2) + '%</td>' +
           '<td class="num">' + Number(r["最新价"]).toFixed(2) + '</td>' +
           '<td>' + ztstat + '</td>' +
@@ -1277,7 +1340,7 @@ window.BOARD_DATA = __DATA__;
           var stHtml = st.slice(0, 2).map(function (s) {
             return '<span class="seat-tag ' + (seatTagCls[s.tag] || "seat-oth") + '">' + s.tag + '</span>';
           }).join('');
-          html += '<div class="lhb-row"><span class="nm"><b>' + esc(r["名称"]) + '</b> <span class="c">' + esc(r["代码"]) + '</span>' +
+          html += '<div class="lhb-row"><span class="nm"><b>' + nameLink(r) + '</b> <span class="c">' + esc(r["代码"]) + '</span>' +
             (ext.lhb_zt.indexOf(r) >= 0 ? ' <span class="focus-tag">涨停</span>' : '') + stHtml + '</span>' +
             '<span class="amt ' + (net >= 0 ? "money-in" : "money-out") + '">' + (net >= 0 ? "+" : "") + fmtMoney(net) + '</span></div>';
         });
@@ -1361,7 +1424,7 @@ window.BOARD_DATA = __DATA__;
       if (!sigs && r.bull) sigs += '<span class="sig-tag sig-hi">多头</span>';
       html += '<tr>' +
         '<td class="code">' + esc(r.code) + '</td>' +
-        '<td><b>' + esc(r.name) + '</b></td>' +
+        '<td>' + nameLink(r) + '</td>' +
         '<td class="num">' + r.close + '</td>' +
         '<td class="num ' + (r.pct20 >= 0 ? "money-in" : "money-out") + '">' + (r.pct20 >= 0 ? "+" : "") + r.pct20 + '%</td>' +
         '<td class="num ' + (r.rs >= 0 ? "money-in" : "money-out") + '">' + (r.rs >= 0 ? "+" : "") + r.rs + '</td>' +
@@ -1396,7 +1459,7 @@ window.BOARD_DATA = __DATA__;
       var cfStr = r.cf_roa !== null && r.cf_roa !== undefined ? r.cf_roa + '%' : "-";
       html += '<tr>' +
         '<td class="code">' + esc(r.code) + '</td>' +
-        '<td><b>' + esc(r.name) + '</b></td>' +
+        '<td>' + nameLink(r) + '</td>' +
         '<td class="num">' + r.close + '</td>' +
         '<td class="num">' + peStr + '</td>' +
         '<td class="num">' + r.pe_pct + '%</td>' +
@@ -1483,9 +1546,44 @@ window.BOARD_DATA = __DATA__;
     box.innerHTML = html;
   }
 
+  function emLink(code) {
+    var c = String(code || "");
+    var pre = c.indexOf("6") === 0 ? "sh" : "sz";
+    return "https://quote.eastmoney.com/" + pre + c + ".html";
+  }
+  function nameLink(r) {
+    return '<a href="' + emLink(r["代码"]) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--ink3);" title="点击查看分时/日K">' + esc(r["名称"]) + '</a>';
+  }
+
+  function renderDragons() {
+    var dr = data.days[cur].dragons;
+    var box = document.getElementById("dragon-card");
+    if (!dr || !dr.pool || !dr.pool.length) { box.innerHTML = ""; return; }
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' +
+      '<div style="font-weight:600;font-size:15px;">潜龙识别 · 新龙晋级候选</div>' +
+      '<div style="font-size:12px;color:var(--ink2);">五维评分：量价健康3 · 题材空间2 · 梯队卡位2 · 资金承接2 · 分歧转一致1（晋级2板 → 新龙观察）</div></div>';
+    html += '<table><tr><th>代码</th><th>名称</th><th>板数</th><th>题材</th><th>换手</th><th>封板资金</th><th>炸板</th><th>评分</th><th>量价</th><th>题材</th><th>卡位</th><th>承接</th><th>转一致</th></tr>';
+    dr.pool.forEach(function (c) {
+      html += '<tr>' +
+        '<td class="code">' + esc(c.code) + '</td>' +
+        '<td>' + nameLink(c) + '</td>' +
+        '<td>' + c.lb + '板</td>' +
+        '<td>' + esc(c.ind) + '</td>' +
+        '<td class="num">' + c.turn + '%</td>' +
+        '<td class="num">' + fmtMoney(c.fund) + '</td>' +
+        '<td class="num">' + c.zb + '</td>' +
+        '<td><span class="pill-lv ' + (c.score >= 8 ? "lv-strong" : "lv-mid") + '">' + c.score + '分</span></td>' +
+        '<td class="num">' + c.v + '</td><td class="num">' + c.s2 + '</td><td class="num">' + c.s3 + '</td><td class="num">' + c.s4 + '</td><td class="num">' + c.s5 + '</td>' +
+        '</tr>';
+    });
+    html += '</table>';
+    box.innerHTML = html;
+  }
+
   function renderAll() {
     renderSentiment();
     renderLeaders();
+    renderDragons();
     renderThemes();
     renderExt();
     renderMovement();
