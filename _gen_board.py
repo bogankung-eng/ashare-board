@@ -431,7 +431,7 @@ def analyze_value(conn):
                 pass
         return {}
 
-    def _calc(watch, is_bluechip):
+    def _calc(watch, is_bluechip, is_growth):
         pool = []
         for code, name in watch.items():
             vrows = conn.execute(
@@ -481,13 +481,22 @@ def analyze_value(conn):
                 else:
                     score += 1
             if is_bluechip:
-                # 蓝筹侧重：市值体量（>2000亿 2分 / >1000亿 1分）
                 if cur_mv and cur_mv >= 2e11:
                     score += 2
                 elif cur_mv and cur_mv >= 1e11:
                     score += 1
                 if debt is not None:
                     score += 1 if debt < 60 else 0
+            elif is_growth:
+                # 科技成长侧重：成长（营收/净利增速）2 + 负债率 2
+                g = 0
+                if rev_g is not None and rev_g > 10:
+                    g += 1
+                if frows and (f[4] or 0) and f[4] > 10:
+                    g += 1
+                score += g
+                if debt is not None:
+                    score += 2 if debt < 60 else 1
             else:
                 if debt is not None:
                     score += 2 if debt < 50 else 1
@@ -514,8 +523,9 @@ def analyze_value(conn):
         pool.sort(key=lambda x: -x["score"])
         return pool
 
-    return {"pool": _calc(_load("value_watchlist.json"), False),
-            "bluechip": _calc(_load("bluechip_watchlist.json"), True)}
+    return {"pool": _calc(_load("value_watchlist.json"), False, False),
+            "bluechip": _calc(_load("bluechip_watchlist.json"), True, False),
+            "growth": _calc(_load("growth_watchlist.json"), False, True)}
 
 
 def analyze_seats(conn, date_str):
@@ -582,6 +592,9 @@ def analyze_seats(conn, date_str):
     hot_act = []
     names = {r[0]: r[1] for r in conn.execute(
         "SELECT DISTINCT code, name FROM pool_daily WHERE date=? AND pool_type IN ('zt','dt')", (date_str,))}
+    for c, n in conn.execute(
+            "SELECT DISTINCT code, name FROM lhb WHERE date=?", (date_str,)):
+        names.setdefault(c, n)  # 龙虎榜股名称兜底（非涨停/跌停的上榜股）
     for code, seats_l in by_code.items():
         for s in seats_l:
             if s["tag"] == "知名游资" and s["net"] != 0:
@@ -960,6 +973,25 @@ TEMPLATE = r"""<!DOCTYPE html>
   .leader-badge{border-radius:6px; padding:2px 10px; font-size:12px; font-weight:600; margin-right:6px;}
   .lb-total{background:var(--purplebg); color:var(--purple); border:1px solid #d8d4f0;}
   .lb-emo{background:var(--redbg); color:var(--red); border:1px solid #f3c4c2;}
+  @media (max-width:760px){
+    .wrap{padding:12px 8px 60px;}
+    .hero{padding:16px 14px;}
+    .card{padding:14px 12px; overflow-x:auto;}
+    .topbar{flex-direction:column; align-items:flex-start; gap:8px;}
+    h1{font-size:19px;}
+    .sub{font-size:12.5px;}
+    .datebar{flex-wrap:wrap;}
+    .tabs{gap:6px; margin-bottom:12px;}
+    .tabs label{padding:7px 13px; font-size:13px; flex:1; text-align:center; min-width:80px;}
+    .filters{gap:8px;}
+    .f-item{flex:1 1 44%;}
+    .idx-grid{grid-template-columns:repeat(auto-fill,minmax(138px,1fr)); gap:8px;}
+    .theme-grid{grid-template-columns:1fr;}
+    .sub-grid,.two-col{grid-template-columns:1fr; gap:10px;}
+    table{font-size:12px;}
+    th,td{padding:5px 6px;}
+    .lhb-row{flex-wrap:wrap;}
+  }
   .prev-stats{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
   .prev-stat{border:1px solid var(--line); border-radius:10px; padding:8px 16px; background:#fbfaf7; text-align:center; min-width:90px;}
   .prev-stat .v{font-size:18px; font-weight:600;}
@@ -1499,6 +1531,28 @@ window.BOARD_DATA = __DATA__;
           '<td class="num">' + (r.pb !== null && r.pb !== undefined ? r.pb : '-') + '</td>' +
           '<td><span class="stage-tag st-' + (r.val_cls === "good" ? "good" : r.val_cls === "warn" ? "warn" : "flat") + '">' + r.val_tag + '</span></td>' +
           '<td class="num">' + (r.roe !== null && r.roe !== undefined ? r.roe + '%' : '-') + '</td>' +
+          '<td class="num">' + (r.debt !== null && r.debt !== undefined ? r.debt + '%' : '-') + '</td>' +
+          '<td><span class="pill-lv ' + r.lv_cls + '">' + r.lv + ' · ' + r.score + '</span></td>' +
+          '</tr>';
+      });
+      html += '</table>';
+    }
+
+    // 科技成长池（AI 硬件链）
+    if (v.growth && v.growth.length) {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:14px 0 8px;">' +
+        '<div style="font-weight:600;font-size:14px;">🚀 科技成长池 <span style="font-size:12px;color:var(--ink2);font-weight:400;">AI 硬件链 · ' + v.growth.length + ' 只（growth_watchlist.json）</span></div>' +
+        '<div style="font-size:12px;color:var(--ink2);">评分侧重：估值3 + ROE3 + 成长2 + 负债率2</div></div>';
+      html += '<table><tr><th>代码</th><th>名称</th><th>PE(TTM)</th><th>PE分位</th><th>估值</th><th>ROE</th><th>营收增速</th><th>负债率</th><th>评级</th></tr>';
+      v.growth.forEach(function (r) {
+        html += '<tr>' +
+          '<td class="code">' + esc(r.code) + '</td>' +
+          '<td>' + nameLink(r) + '</td>' +
+          '<td class="num">' + (r.pe_ttm !== null && r.pe_ttm !== undefined ? r.pe_ttm : '-') + '</td>' +
+          '<td class="num">' + r.pe_pct + '%</td>' +
+          '<td><span class="stage-tag st-' + (r.val_cls === "good" ? "good" : r.val_cls === "warn" ? "warn" : "flat") + '">' + r.val_tag + '</span></td>' +
+          '<td class="num">' + (r.roe !== null && r.roe !== undefined ? r.roe + '%' : '-') + '</td>' +
+          '<td class="num ' + (r.rev_g !== null && r.rev_g !== undefined && r.rev_g > 0 ? "money-in" : "") + '">' + (r.rev_g !== null && r.rev_g !== undefined ? r.rev_g + '%' : '-') + '</td>' +
           '<td class="num">' + (r.debt !== null && r.debt !== undefined ? r.debt + '%' : '-') + '</td>' +
           '<td><span class="pill-lv ' + r.lv_cls + '">' + r.lv + ' · ' + r.score + '</span></td>' +
           '</tr>';

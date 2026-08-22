@@ -352,7 +352,7 @@ def fetch_kline(conn, date_str, now):
 def fetch_value(conn, date_str, now):
     """P5: 价值候选池（价值股 + 蓝筹股双池）——估值历史（stock_value_em，增量）+ 财务多期（新浪，覆盖）"""
     watch = {}
-    for fn in ("value_watchlist.json", "bluechip_watchlist.json"):
+    for fn in ("value_watchlist.json", "bluechip_watchlist.json", "growth_watchlist.json"):
         wl = os.path.join(BASE, fn)
         if os.path.exists(wl):
             try:
