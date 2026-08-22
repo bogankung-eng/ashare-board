@@ -421,84 +421,101 @@ def analyze_ext(ext, pools):
 
 
 def analyze_value(conn):
-    """P5 长线价值：估值分位（5年 PE TTM/PB）+ 巴式体检评分"""
-    wl = os.path.join(BASE, "value_watchlist.json")
-    if not os.path.exists(wl):
-        return {"pool": [], "note": "未配置 value_watchlist.json"}
-    watch = json.load(open(wl, encoding="utf-8"))
-    pool = []
-    for code, name in watch.items():
-        vrows = conn.execute(
-            "SELECT date, close, pe_ttm, pb FROM value_hist WHERE code=? "
-            "AND pe_ttm IS NOT NULL ORDER BY date", (code,)).fetchall()
-        if len(vrows) < 60:
-            continue
-        # 近 5 年（约 1250 交易日）估值序列
-        look = vrows[-1250:]
-        pes = [r[2] for r in look if r[2] and r[2] > 0]
-        pbs = [r[3] for r in look if r[3] and r[3] > 0]
-        cur_pe, cur_pb, cur_close = vrows[-1][2], vrows[-1][3], vrows[-1][1]
-        if not pes or not pbs:
-            continue
-        pe_pct = round(sum(1 for x in pes if x < cur_pe) / len(pes) * 100)
-        pb_pct = round(sum(1 for x in pbs if x < cur_pb) / len(pbs) * 100)
-        if pe_pct < 30:
-            val_tag, val_cls = "便宜", "good"
-        elif pe_pct < 60:
-            val_tag, val_cls = "合理", "flat"
-        else:
-            val_tag, val_cls = "偏贵", "warn"
+    """P5 长线价值：估值分位（5年 PE TTM/PB）+ 巴式体检评分（价值池 + 蓝筹池双池）"""
+    def _load(fn):
+        wl = os.path.join(BASE, fn)
+        if os.path.exists(wl):
+            try:
+                return json.load(open(wl, encoding="utf-8"))
+            except Exception:
+                pass
+        return {}
 
-        frows = conn.execute(
-            "SELECT roe, profit_margin, debt_ratio, cf_roa, rev_growth FROM fin_hist "
-            "WHERE code=? AND roe IS NOT NULL ORDER BY date", (code,)).fetchall()
-        f = frows[-1] if frows else None
-        roes = [r[0] for r in frows[-8:]] if frows else []
-        roe = f[0] if f else None
-        debt = f[2] if f else None
-        cf = f[3] if f else None
-        rev_g = f[4] if f else None
-        roe_avg = round(sum(roes) / len(roes), 1) if roes else None
+    def _calc(watch, is_bluechip):
+        pool = []
+        for code, name in watch.items():
+            vrows = conn.execute(
+                "SELECT date, close, pe_ttm, pb, total_mv FROM value_hist WHERE code=? "
+                "AND pe_ttm IS NOT NULL ORDER BY date", (code,)).fetchall()
+            if len(vrows) < 60:
+                continue
+            look = vrows[-1250:]
+            pes = [r[2] for r in look if r[2] and r[2] > 0]
+            pbs = [r[3] for r in look if r[3] and r[3] > 0]
+            cur_pe, cur_pb, cur_close, cur_mv = vrows[-1][2], vrows[-1][3], vrows[-1][1], vrows[-1][4]
+            if not pes or not pbs:
+                continue
+            pe_pct = round(sum(1 for x in pes if x < cur_pe) / len(pes) * 100)
+            pb_pct = round(sum(1 for x in pbs if x < cur_pb) / len(pbs) * 100)
+            if pe_pct < 30:
+                val_tag, val_cls = "便宜", "good"
+            elif pe_pct < 60:
+                val_tag, val_cls = "合理", "flat"
+            else:
+                val_tag, val_cls = "偏贵", "warn"
 
-        # 巴式评分 10 分：估值 + 质地(年均ROE) + 稳健
-        roe_use = roe_avg if roe_avg is not None else roe  # 优先 8 期均值（年化更真实）
-        score = 0
-        if pe_pct < 30:
-            score += 3
-        elif pe_pct < 50:
-            score += 2
-        else:
-            score += 1
-        if roe_use is not None:
-            if roe_use >= 15:
+            frows = conn.execute(
+                "SELECT roe, profit_margin, debt_ratio, cf_roa, rev_growth FROM fin_hist "
+                "WHERE code=? AND roe IS NOT NULL ORDER BY date", (code,)).fetchall()
+            f = frows[-1] if frows else None
+            roes = [r[0] for r in frows[-8:]] if frows else []
+            roe = f[0] if f else None
+            debt = f[2] if f else None
+            cf = f[3] if f else None
+            rev_g = f[4] if f else None
+            roe_avg = round(sum(roes) / len(roes), 1) if roes else None
+            roe_use = roe_avg if roe_avg is not None else roe
+
+            score = 0
+            if pe_pct < 30:
                 score += 3
-            elif roe_use >= 10:
+            elif pe_pct < 50:
                 score += 2
             else:
                 score += 1
-        if debt is not None:
-            score += 2 if debt < 50 else 1
-        if rev_g is not None and rev_g > 0:
-            score += 2
-        elif cf is not None and cf > 0:
-            score += 1
-        lv = "优" if score >= 8 else ("良" if score >= 6 else "一般")
-        lv_cls = "lv-strong" if lv == "优" else ("lv-mid" if lv == "良" else "lv-weak")
+            if roe_use is not None:
+                if roe_use >= 15:
+                    score += 3
+                elif roe_use >= 10:
+                    score += 2
+                else:
+                    score += 1
+            if is_bluechip:
+                # 蓝筹侧重：市值体量（>2000亿 2分 / >1000亿 1分）
+                if cur_mv and cur_mv >= 2e11:
+                    score += 2
+                elif cur_mv and cur_mv >= 1e11:
+                    score += 1
+                if debt is not None:
+                    score += 1 if debt < 60 else 0
+            else:
+                if debt is not None:
+                    score += 2 if debt < 50 else 1
+                if rev_g is not None and rev_g > 0:
+                    score += 2
+                elif cf is not None and cf > 0:
+                    score += 1
+            lv = "优" if score >= 8 else ("良" if score >= 6 else "一般")
+            lv_cls = "lv-strong" if lv == "优" else ("lv-mid" if lv == "良" else "lv-weak")
 
-        pool.append({
-            "code": code, "name": name, "close": round(cur_close, 2),
-            "pe_ttm": round(cur_pe, 1) if cur_pe else None,
-            "pb": round(cur_pb, 2) if cur_pb else None,
-            "pe_pct": pe_pct, "pb_pct": pb_pct,
-            "val_tag": val_tag, "val_cls": val_cls,
-            "roe": round(roe_use, 1) if roe_use is not None else None,
-            "roe_avg": roe_avg, "debt": round(debt, 1) if debt is not None else None,
-            "cf_roa": round(cf, 1) if cf is not None else None,
-            "rev_g": round(rev_g, 1) if rev_g is not None else None,
-            "score": score, "lv": lv, "lv_cls": lv_cls,
-        })
-    pool.sort(key=lambda x: -x["score"])
-    return {"pool": pool, "note": ""}
+            pool.append({
+                "code": code, "name": name, "close": round(cur_close, 2),
+                "pe_ttm": round(cur_pe, 1) if cur_pe else None,
+                "pb": round(cur_pb, 2) if cur_pb else None,
+                "pe_pct": pe_pct, "pb_pct": pb_pct,
+                "val_tag": val_tag, "val_cls": val_cls,
+                "roe": round(roe_use, 1) if roe_use is not None else None,
+                "roe_avg": roe_avg, "debt": round(debt, 1) if debt is not None else None,
+                "cf_roa": round(cf, 1) if cf is not None else None,
+                "rev_g": round(rev_g, 1) if rev_g is not None else None,
+                "mv": round(cur_mv / 1e8, 0) if cur_mv else None,  # 亿元
+                "score": score, "lv": lv, "lv_cls": lv_cls,
+            })
+        pool.sort(key=lambda x: -x["score"])
+        return pool
+
+    return {"pool": _calc(_load("value_watchlist.json"), False),
+            "bluechip": _calc(_load("bluechip_watchlist.json"), True)}
 
 
 def analyze_seats(conn, date_str):
@@ -1460,39 +1477,60 @@ window.BOARD_DATA = __DATA__;
   function renderValue() {
     var v = data.value;
     var box = document.getElementById("value-card");
-    if (!v || !v.pool || !v.pool.length) {
-      box.innerHTML = '<div class="empty">价值数据采集中（value_watchlist.json 配置的候选池，21:30 自动更新后可见）</div>';
+    if (!v || (!v.pool || !v.pool.length) && (!v.bluechip || !v.bluechip.length)) {
+      box.innerHTML = '<div class="empty">价值/蓝筹数据采集中（value_watchlist.json / bluechip_watchlist.json，21:30 自动更新后可见）</div>';
       return;
     }
-    var html = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' +
-      '<div style="font-weight:600; font-size:15px;">长线价值 · 估值分位 + 质地体检</div>' +
-      '<div style="font-size:12px;color:var(--ink2);">候选池 ' + v.pool.length + ' 只（编辑 value_watchlist.json 可增删）· 按评分排序</div></div>';
-    html += '<table><tr><th>代码</th><th>名称</th><th>现价</th><th>PE(TTM)</th><th>PE 5年分位</th><th>PB</th><th>PB 5年分位</th><th>估值</th><th>ROE</th><th>ROE均(8期)</th><th>负债率</th><th>现金流回报</th><th>评级</th></tr>';
-    v.pool.forEach(function (r) {
-      var peStr = r.pe_ttm !== null && r.pe_ttm !== undefined ? r.pe_ttm : "-";
-      var pbStr = r.pb !== null && r.pb !== undefined ? r.pb : "-";
-      var roeStr = r.roe !== null && r.roe !== undefined ? r.roe + '%' : "-";
-      var roeAvgStr = r.roe_avg !== null && r.roe_avg !== undefined ? r.roe_avg + '%' : "-";
-      var debtStr = r.debt !== null && r.debt !== undefined ? r.debt + '%' : "-";
-      var cfStr = r.cf_roa !== null && r.cf_roa !== undefined ? r.cf_roa + '%' : "-";
-      html += '<tr>' +
-        '<td class="code">' + esc(r.code) + '</td>' +
-        '<td>' + nameLink(r) + '</td>' +
-        '<td class="num">' + r.close + '</td>' +
-        '<td class="num">' + peStr + '</td>' +
-        '<td class="num">' + r.pe_pct + '%</td>' +
-        '<td class="num">' + pbStr + '</td>' +
-        '<td class="num">' + r.pb_pct + '%</td>' +
-        '<td><span class="stage-tag st-' + (r.val_cls === "good" ? "good" : r.val_cls === "warn" ? "warn" : "flat") + '">' + r.val_tag + '</span></td>' +
-        '<td class="num">' + roeStr + '</td>' +
-        '<td class="num">' + roeAvgStr + '</td>' +
-        '<td class="num">' + debtStr + '</td>' +
-        '<td class="num">' + cfStr + '</td>' +
-        '<td><span class="pill-lv ' + r.lv_cls + '">' + r.lv + ' · ' + r.score + '</span></td>' +
-        '</tr>';
-    });
-    html += '</table>';
-    html += '<div style="font-size:11.5px;color:var(--ink3);margin-top:10px;">估值分位 = 当前 PE(TTM)/PB 在近 5 年中的百分位（越低越便宜）；评分 = 估值(3) + 质地ROE(3) + 负债率(2) + 成长/现金流(2)。股息视角待补。</div>';
+    var html = '<div style="font-weight:600; font-size:15px; margin-bottom:12px;">长线价值 · 估值分位 + 质地体检</div>';
+
+    // 蓝筹股池
+    if (v.bluechip && v.bluechip.length) {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:14px 0 8px;">' +
+        '<div style="font-weight:600;font-size:14px;">🏛 蓝筹股池 <span style="font-size:12px;color:var(--ink2);font-weight:400;">行业龙头 · ' + v.bluechip.length + ' 只（bluechip_watchlist.json）</span></div>' +
+        '<div style="font-size:12px;color:var(--ink2);">评分侧重：估值3 + ROE3 + 市值2 + 负债率2</div></div>';
+      html += '<table><tr><th>代码</th><th>名称</th><th>总市值</th><th>PE(TTM)</th><th>PE分位</th><th>PB</th><th>估值</th><th>ROE</th><th>负债率</th><th>评级</th></tr>';
+      v.bluechip.forEach(function (r) {
+        html += '<tr>' +
+          '<td class="code">' + esc(r.code) + '</td>' +
+          '<td>' + nameLink(r) + '</td>' +
+          '<td class="num">' + (r.mv !== null && r.mv !== undefined ? (r.mv >= 10000 ? (r.mv / 10000).toFixed(2) + '万亿' : r.mv.toFixed(0) + '亿') : '-') + '</td>' +
+          '<td class="num">' + (r.pe_ttm !== null && r.pe_ttm !== undefined ? r.pe_ttm : '-') + '</td>' +
+          '<td class="num">' + r.pe_pct + '%</td>' +
+          '<td class="num">' + (r.pb !== null && r.pb !== undefined ? r.pb : '-') + '</td>' +
+          '<td><span class="stage-tag st-' + (r.val_cls === "good" ? "good" : r.val_cls === "warn" ? "warn" : "flat") + '">' + r.val_tag + '</span></td>' +
+          '<td class="num">' + (r.roe !== null && r.roe !== undefined ? r.roe + '%' : '-') + '</td>' +
+          '<td class="num">' + (r.debt !== null && r.debt !== undefined ? r.debt + '%' : '-') + '</td>' +
+          '<td><span class="pill-lv ' + r.lv_cls + '">' + r.lv + ' · ' + r.score + '</span></td>' +
+          '</tr>';
+      });
+      html += '</table>';
+    }
+
+    // 价值池
+    if (v.pool && v.pool.length) {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:14px 0 8px;">' +
+        '<div style="font-weight:600;font-size:14px;">💎 价值股池 <span style="font-size:12px;color:var(--ink2);font-weight:400;">低估值 + 高质地 · ' + v.pool.length + ' 只（value_watchlist.json）</span></div>' +
+        '<div style="font-size:12px;color:var(--ink2);">评分：估值3 + ROE3 + 负债率2 + 成长/现金流2</div></div>';
+      html += '<table><tr><th>代码</th><th>名称</th><th>现价</th><th>PE(TTM)</th><th>PE分位</th><th>PB</th><th>估值</th><th>ROE</th><th>ROE均</th><th>负债率</th><th>现金流回报</th><th>评级</th></tr>';
+      v.pool.forEach(function (r) {
+        html += '<tr>' +
+          '<td class="code">' + esc(r.code) + '</td>' +
+          '<td>' + nameLink(r) + '</td>' +
+          '<td class="num">' + r.close + '</td>' +
+          '<td class="num">' + (r.pe_ttm !== null && r.pe_ttm !== undefined ? r.pe_ttm : '-') + '</td>' +
+          '<td class="num">' + r.pe_pct + '%</td>' +
+          '<td class="num">' + (r.pb !== null && r.pb !== undefined ? r.pb : '-') + '</td>' +
+          '<td><span class="stage-tag st-' + (r.val_cls === "good" ? "good" : r.val_cls === "warn" ? "warn" : "flat") + '">' + r.val_tag + '</span></td>' +
+          '<td class="num">' + (r.roe !== null && r.roe !== undefined ? r.roe + '%' : '-') + '</td>' +
+          '<td class="num">' + (r.roe_avg !== null && r.roe_avg !== undefined ? r.roe_avg + '%' : '-') + '</td>' +
+          '<td class="num">' + (r.debt !== null && r.debt !== undefined ? r.debt + '%' : '-') + '</td>' +
+          '<td class="num">' + (r.cf_roa !== null && r.cf_roa !== undefined ? r.cf_roa + '%' : '-') + '</td>' +
+          '<td><span class="pill-lv ' + r.lv_cls + '">' + r.lv + ' · ' + r.score + '</span></td>' +
+          '</tr>';
+      });
+      html += '</table>';
+    }
+    html += '<div style="font-size:11.5px;color:var(--ink3);margin-top:10px;">估值分位 = 当前 PE(TTM)/PB 在近 5 年中的百分位（越低越便宜）。股息视角待补。</div>';
     box.innerHTML = html;
   }
 

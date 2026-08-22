@@ -350,14 +350,17 @@ def fetch_kline(conn, date_str, now):
 
 
 def fetch_value(conn, date_str, now):
-    """P5: 价值候选池——估值历史（stock_value_em，增量）+ 财务多期（新浪，覆盖）"""
-    wl = os.path.join(BASE, "value_watchlist.json")
-    if not os.path.exists(wl):
-        print("[跳过] value_watchlist.json 不存在")
-        return
-    watch = json.load(open(wl, encoding="utf-8"))
+    """P5: 价值候选池（价值股 + 蓝筹股双池）——估值历史（stock_value_em，增量）+ 财务多期（新浪，覆盖）"""
+    watch = {}
+    for fn in ("value_watchlist.json", "bluechip_watchlist.json"):
+        wl = os.path.join(BASE, fn)
+        if os.path.exists(wl):
+            try:
+                watch.update(json.load(open(wl, encoding="utf-8")))
+            except Exception:
+                pass
     if not watch:
-        print("[跳过] 价值候选池为空")
+        print("[跳过] 价值/蓝筹候选池为空")
         return
 
     # 1) 估值历史（增量：只补最新日期之后）
