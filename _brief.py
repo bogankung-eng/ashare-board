@@ -69,15 +69,15 @@ def main():
     # 龙头
     t, e = leaders.get("total"), leaders.get("emo")
     if t and e:
-        t_s = f"{t['name']}{'·今日涨停' if t['today'] else '·今日断板⚠️'}"
-        L.append(f"【龙头】总龙 {t_s} | 情绪龙 {e['name']} {e['lb']}板(评分{e['score']})")
+        t_s = f"{t['名称']}{'·今日涨停' if t['today'] else '·今日断板⚠️'}"
+        L.append(f"【龙头】总龙 {t_s} | 情绪龙 {e['名称']} {e['lb']}板(评分{e['score']})")
         for s in leaders.get("signals", [])[:2]:
             mark = {"danger": "⚠️", "warn": "❗", "good": "✅", "ok": "—"}.get(s["cls"], "·")
             L.append(f"   {mark} {s['text']}")
     # 异动
     hot = [a for a in mv.get("alerts", []) if a["level"] in ("T1", "T2")]
     if hot:
-        top3 = "、".join(f"{a['name']}+{max(a['g20'], a['g30']):.0f}%" for a in hot[:3])
+        top3 = "、".join(f"{a['名称']}+{max(a['g20'], a['g30']):.0f}%" for a in hot[:3])
         L.append(f"【异动】T1/T2预警 {len(hot)} 只：{top3}")
     elif mv.get("alerts"):
         L.append(f"【异动】T0观察 {len(mv['alerts'])} 只（接近阈值）")
@@ -91,12 +91,12 @@ def main():
         net_all = sum(h["net"] for h in hm)
         L.append(f"【席位】知名游资净{(net_all/1e4):+.0f}万（买{buys}笔/卖{sells}笔）")
         top = hm[0]
-        L.append(f"   最显著：{top['name']} {top['seat'][:12]}… {'+' if top['net']>0 else ''}{top['net']/1e4:.0f}万")
+        L.append(f"   最显著：{top['名称']} {top['seat'][:12]}… {'+' if top['net']>0 else ''}{top['net']/1e4:.0f}万")
     else:
         L.append("【席位】当日无知名游资动作")
     # 潜龙
     if dragons.get("pool"):
-        top3 = "、".join(f"{c['name']}({c['score']}分)" for c in dragons["pool"][:3])
+        top3 = "、".join(f"{c['名称']}({c['score']}分)" for c in dragons["pool"][:3])
         L.append(f"【潜龙】{len(dragons['pool'])} 只候选：{top3}")
     # 昨日验证
     if len(dates) >= 2:
