@@ -12,11 +12,17 @@ A股行情看板 · P0 数据采集器
 import argparse
 import json
 import os
+import socket
 import sqlite3
+import threading
 import time
 from datetime import date, datetime
 
 import akshare as ak
+
+# 防第三方行情接口无响应挂起（requests 默认无限等待 → 脚本卡死）
+# 2026-08-26 修复：新浪/东财接口偶发"连接成功但无响应"，此前曾卡死 18+ 分钟
+socket.setdefaulttimeout(20)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE, "data", "board.db")
@@ -117,12 +123,36 @@ def load_trade_cal(conn):
     return {r[0] for r in conn.execute("SELECT date FROM trade_cal")}
 
 
-def call_with_retry(fn, retries=3, **kw):
-    """指数退避重试；akshare 爬虫类接口偶发失败/风控，间隔拉长降低触发概率"""
+def _call_timeout(fn, timeout, **kw):
+    """线程级看门狗：任何调用超过 timeout 秒即放弃（防接口无响应挂死）。
+    注：socket 全局超时对部分接口不生效（akshare 显式传 timeout 参数会覆盖），
+    故改用线程 join 兜底。挂起线程为 daemon，进程退出时自动清理。"""
+    box = {}
+
+    def worker():
+        try:
+            box["df"] = fn(**kw)
+            box["ok"] = True
+        except Exception as e:  # noqa: BLE001
+            box["err"] = e
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(f"{getattr(fn, '__name__', fn)} 调用超过 {timeout}s 无响应，已放弃")
+    if "err" in box:
+        raise box["err"]
+    return box.get("df")
+
+
+def call_with_retry(fn, retries=3, timeout=20, **kw):
+    """指数退避重试；akshare 爬虫类接口偶发失败/风控，间隔拉长降低触发概率。
+    2026-08-26 加固：线程级看门狗，任何挂起调用到 timeout 秒即放弃重试，防止脚本无限卡死。"""
     waits = [5, 15, 30]
     for i in range(retries):
         try:
-            df = fn(**kw)
+            df = _call_timeout(fn, timeout, **kw)
             if df is not None and len(df) > 0:
                 return df
             print(f"  [重试{i+1}] 返回空数据")
