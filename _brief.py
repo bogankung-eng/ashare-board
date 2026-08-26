@@ -104,7 +104,7 @@ def main():
         if bt:
             L.append(f"【昨日验证】{dates[-2][6:]}日 {bt}")
     L.append("━━━━━━━━━━━━━━━")
-    L.append("详见 https://ashare-board.bogan-kung.workers.dev/")
+    L.append("详见 https://ashare-board.pages.dev/")
     print("\n".join(L))
 
 
