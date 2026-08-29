@@ -1114,10 +1114,59 @@ TEMPLATE = r"""<!DOCTYPE html>
   .desk-grid .col{display:flex; flex-direction:column; gap:14px;}
   .desk-grid .card{margin-bottom:0;}
   @media (min-width:1024px){
-    .desk-grid{grid-template-columns:0.82fr 1.4fr 1.05fr; align-items:start;}
+    .desk-grid{grid-template-columns:200px 1.4fr 1fr; align-items:start;}
   }
-  .nav-item{border:1px solid var(--line); border-radius:6px; padding:6px 12px; font-size:12.5px; margin-bottom:5px; cursor:pointer; color:var(--ink2); background:#fff; transition:all .12s;}
-  .nav-item:hover{background:var(--bluebg); color:var(--blue); border-color:#9cc4e8;}
+  .nav-card{padding:14px 0 12px;}
+  .brand{text-align:center;font-size:14px;font-weight:600;color:#fff;background:var(--blue);margin:-14px -1px 0 -1px;padding:10px;border-radius:0;}
+  .brand-sub{text-align:center;font-size:11.5px;color:var(--ink3);margin:6px 0 10px;padding:0 10px;}
+  .mod-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:2px 6px;font-size:12.5px;cursor:pointer;color:var(--ink2);border-radius:6px;border:1px solid transparent;background:transparent;}
+  .mod-btn:hover{background:#f2f4f7;color:var(--ink);}
+  .mod-btn.active{background:var(--bluebg);color:var(--blue);border-color:#9cc4e8;font-weight:600;}
+  .mod-btn .ic{font-size:14px;width:16px;text-align:center;color:var(--ink3);}
+  .mod-btn.active .ic{color:var(--blue);}
+  .mod-sep{height:1px;background:var(--line);margin:8px 12px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;padding:6px 0 10px;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap;gap:6px;}
+  .tb-title{font-size:14px;font-weight:600;}
+  .tb-title .cnt{font-weight:400;color:var(--ink2);font-size:12px;margin-left:6px;}
+  .tb-tip{font-size:11.5px;color:var(--ink3);}
+  .lb-tag{font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:5px;margin-right:6px;}
+  .t-lb7{background:#4a0f0f;color:#fff;}
+  .t-lb5{background:#d93025;color:#fff;}
+  .t-lb4{background:#fdecec;color:#d93025;border:1px solid #f3c4c2;}
+  .t-lb3{background:#fdf3e0;color:#b45309;border:1px solid #f0d9ac;}
+  .t-lb2{background:#e8f1fa;color:#185fa5;border:1px solid #c9ddef;}
+  .t-lb1{background:#f1efe9;color:#5a6472;border:1px solid #dde2e8;}
+  .g-lb7{background:#4a0f0f;color:#fff;}
+  .g-lb5{background:#fdecec;color:#4a0f0f;}
+  .g-lb4{background:#fdecec;color:#a32d2d;}
+  .g-lb3{background:#fdf3e0;color:#854f0b;}
+  .g-lb2{background:#e8f1fa;color:#1d5fa8;}
+  .g-lb1{background:#f1efe9;color:#5a6472;}
+  .metric-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px;}
+  .metric-card{border:1px solid var(--line);border-radius:6px;padding:10px;background:#fff;text-align:center;}
+  .metric-card .lab{font-size:11.5px;color:var(--ink2);}
+  .metric-card .val{font-size:18px;font-weight:600;margin-top:2px;font-family:Consolas,monospace;}
+  .core-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px;}
+  .core-cell{border:1px solid var(--line);border-radius:6px;padding:8px;background:#fff;text-align:center;}
+  .core-cell .lab{font-size:11px;color:var(--ink2);}
+  .core-cell .val{font-size:17px;font-weight:600;margin-top:1px;font-family:Consolas,monospace;}
+  .temp-bar{margin:8px 0 4px;}
+  .temp-track{position:relative;height:8px;background:linear-gradient(90deg,#185fa5 0%,#188038 50%,#d93025 100%);border-radius:4px;margin:6px 0;}
+  .temp-fill{height:100%;background:rgba(255,255,255,0.4);border-radius:4px;}
+  .temp-marker{position:absolute;top:-4px;width:4px;height:16px;background:#1f2430;border-radius:2px;transform:translateX(-50%);}
+  .temp-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--ink3);padding:2px 0;}
+  .risk-line{display:flex;justify-content:space-between;align-items:center;padding:6px 4px;margin-top:6px;background:#fafbfc;border-radius:6px;font-size:11px;color:var(--ink2);}
+  .tone-tag{display:inline-block;font-size:15px;font-weight:600;padding:4px 14px;border-radius:8px;margin-bottom:8px;}
+  .prev-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line);font-size:12.5px;}
+  .prev-row:last-child{border-bottom:none;}
+  .theme-row,.dragon-row{padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .theme-row:last-child,.dragon-row:last-child{border-bottom:none;}
+  .view .card{padding:14px 16px;}
+  @media (max-width:1023px){
+    .col-nav{order:1;} .col-main{order:2;} .col-side{order:3;}
+    .metric-grid{grid-template-columns:repeat(3,1fr);}
+    .core-grid{grid-template-columns:repeat(3,1fr);}
+  }
   .cycle-wrap{display:flex; align-items:stretch; gap:5px; padding-top:6px;}
   .cycle-day{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; min-width:0;}
   .c-bars{display:flex; align-items:flex-end; gap:2px; height:74px; width:100%; justify-content:center;}
@@ -1192,8 +1241,14 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div class="panel panel-short">
   <div class="desk-grid">
     <div class="col col-nav">
+      <div class="card nav-card">
+        <div class="brand">A股复盘台</div>
+        <div class="brand-sub" id="brand-sub">短线 · 涨停梯队</div>
+        <div id="nav-modules"></div>
+      </div>
+
       <div class="card">
-        <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">涨停池筛选</div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">梯队筛选</div>
         <div class="filters">
           <div class="f-item">
             <label>连板数</label>
@@ -1214,68 +1269,73 @@ TEMPLATE = r"""<!DOCTYPE html>
             </div>
           </div>
           <div class="f-item">
-            <label>首次封板时间</label>
+            <label>封板时间</label>
             <select id="f-seal">
               <option value="all">全部</option>
               <option value="early">早盘 ≤10:00</option>
-              <option value="mid">盘中 10:00-14:30</option>
+              <option value="mid">盘中</option>
               <option value="late">尾盘 ≥14:30</option>
             </select>
           </div>
           <div class="f-item">
-            <label>炸板次数</label>
+            <label>炸板</label>
             <select id="f-zb">
               <option value="all">全部</option>
-              <option value="0">0 次（干净板）</option>
+              <option value="0">0 次</option>
               <option value="1">≥1 次</option>
             </select>
           </div>
           <div class="f-item">
-            <label>筛选</label>
+            <label>操作</label>
             <button class="btn" id="f-reset" type="button">重置</button>
           </div>
         </div>
         <div class="ind-tags" id="ind-tags"></div>
       </div>
-
-      <div class="card">
-        <div id="nav-card"></div>
-      </div>
     </div>
 
     <div class="col col-main">
-      <div class="card">
-        <div id="sentiment"></div>
+      <div class="view" id="view-stage">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">涨停梯队 <span class="cnt" id="stage-cnt"></span></div>
+            <div class="tb-tip" id="stage-tip"></div>
+          </div>
+          <div id="stage-body"></div>
+        </div>
       </div>
-
-      <div class="card">
-        <div id="cycle-card"></div>
+      <div class="view" id="view-alert" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">溢价 · 异动预警</div>
+            <div class="tb-tip" id="alert-tip"></div>
+          </div>
+          <div id="alert-body"></div>
+        </div>
       </div>
-
-      <div class="card">
-        <div id="themes-card"></div>
+      <div class="view" id="view-cycle" style="display:none">
+        <div class="card">
+          <div class="toolbar"><div class="tb-title">情绪 · 周期</div></div>
+          <div id="cycle-body"></div>
+        </div>
       </div>
-
-      <div class="card">
-        <div id="leader-card"></div>
-      </div>
-
-      <div class="card">
-        <div id="dragon-card"></div>
-      </div>
-
-      <div class="card">
-        <div id="pool"></div>
+      <div class="view" id="view-theme" style="display:none">
+        <div class="card">
+          <div class="toolbar"><div class="tb-title">主线 · 龙头 · 潜龙</div></div>
+          <div id="theme-body"></div>
+        </div>
       </div>
     </div>
 
-    <div class="col col-strategy">
+    <div class="col col-side">
       <div class="card">
-        <div id="mov-card"></div>
+        <div id="side-tone"></div>
       </div>
-
       <div class="card">
-        <div id="ext-card"></div>
+        <div id="side-coredata"></div>
+      </div>
+      <div class="card">
+        <div id="side-prev"></div>
       </div>
     </div>
   </div>
@@ -1907,48 +1967,227 @@ window.BOARD_DATA = __DATA__;
     box.innerHTML = html;
   }
 
-  function renderNav() {
-    var box = document.getElementById("nav-card");
+  var curView = "stage";
+
+  function showView(name) {
+    curView = name;
+    document.querySelectorAll(".view").forEach(function (v) { v.style.display = "none"; });
+    var el = document.getElementById("view-" + name);
+    if (el) el.style.display = "";
+    document.querySelectorAll(".mod-btn").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-mod") === name);
+    });
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头" };
+    var s = document.getElementById("brand-sub");
+    if (s) s.textContent = subs[name] || "A股复盘台";
+    renderAll();
+  }
+  window.showView = showView;
+
+  function renderNavModules() {
+    var box = document.getElementById("nav-modules");
+    if (!box) return;
+    var items = [
+      { k: "stage",  t: "涨停梯队", i: "□" },
+      { k: "alert",  t: "异动预警", i: "△" },
+      { k: "cycle",  t: "情绪周期", i: "∿" },
+      { k: "theme",  t: "主线龙头", i: "★" },
+    ];
+    var h = "";
+    items.forEach(function (it) {
+      h += '<div class="mod-btn' + (curView === it.k ? " active" : "") + '" data-mod="' + it.k + '" onclick="showView(\'' + it.k + '\')"><span class="ic">' + it.i + '</span>' + it.t + '</div>';
+    });
+    h += '<div class="mod-sep"></div>';
+    h += '<div class="mod-btn" data-mod="trend" onclick="document.getElementById(\'tab-trend\').click()"><span class="ic">∥</span>中长线</div>';
+    h += '<div class="mod-btn" data-mod="value" onclick="document.getElementById(\'tab-value\').click()"><span class="ic">◇</span>长线价值</div>';
+    box.innerHTML = h;
+  }
+
+  function renderStage() {
+    if (curView !== "stage") return;
+    var box = document.getElementById("stage-body");
     if (!box) return;
     var day = data.days[cur];
-    var s = day.sent;
-    var mv = data.movement || { alerts: [] };
-    var hotN = (mv.alerts || []).filter(function (a) { return a.level === "T1" || a.level === "T2"; }).length;
-    var ld = day.leaders;
-    var html = '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">今日速览</div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">' +
-      '<div class="sent-item"><div class="label">情绪</div><div class="value" style="font-size:14px;">' + s.tag + '</div></div>' +
-      '<div class="sent-item"><div class="label">涨停</div><div class="value">' + s.zt + '</div></div>' +
-      '<div class="sent-item"><div class="label">最高板</div><div class="value">' + (s.max_lb > 0 ? s.max_lb + '板' : '-') + '</div></div>' +
-      '<div class="sent-item"><div class="label">异动</div><div class="value ' + (hotN ? "money-in" : "") + '">' + hotN + '</div></div>' +
-      '</div>';
-    if (ld && ld.emo) {
-      html += '<div style="font-size:12px;line-height:1.9;padding:8px 10px;background:#fafbfc;border:1px solid var(--line);border-radius:6px;margin-bottom:10px;">' +
-        '总龙 <b>' + esc(ld.total ? ld.total['名称'] : '-') + '</b>' + (ld.total && !ld.total.today ? ' <span class="pill" style="background:var(--amberbg);color:var(--amber);border:1px solid #f0d9ac;">断板</span>' : '') + '<br>' +
-        '情绪龙 <b>' + esc(ld.emo['名称']) + '</b> ' + ld.emo.lb + '板</div>';
-    }
-    html += '<div style="font-weight:600;font-size:13px;margin:4px 0 6px;color:var(--ink2);">模块导航</div>';
-    [["sentiment", "情绪面板"], ["cycle-card", "周期轨迹"], ["themes-card", "题材聚类"],
-     ["leader-card", "龙头标识"], ["dragon-card", "潜龙候选"], ["pool", "涨停池"],
-     ["mov-card", "异动预警"], ["ext-card", "复盘/席位"]].forEach(function (it) {
-      html += '<div class="nav-item" onclick="document.getElementById(\'' + it[0] + '\').scrollIntoView({behavior:\'smooth\',block:\'start\'})">' + it[1] + '</div>';
+    var zt = day.pools.zt || [];
+    var total = zt.length;
+    var groups = {};
+    zt.forEach(function (r) {
+      var lb = parseInt(r["连板数"] || 0, 10);
+      if (lb < 1) return;
+      var key = lb >= 7 ? "7+" : String(lb);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
     });
+    var keys = Object.keys(groups).map(function (k) { return k === "7+" ? 8 : parseInt(k, 10); }).sort(function (a, b) { return b - a; });
+    var showCnt = zt.length;
+    var cntEl = document.getElementById("stage-cnt");
+    if (cntEl) cntEl.textContent = "共 " + showCnt + " 只（全部）";
+    var tipEl = document.getElementById("stage-tip");
+    if (tipEl) tipEl.textContent = "按连板高度分组 · 颜色越深越强";
+    var html = "";
+    keys.forEach(function (k) {
+      var key = k >= 7 ? "7+" : String(k);
+      var lst = groups[key];
+      var cls = k >= 7 ? "g-lb7" : (k >= 5 ? "g-lb5" : (k >= 4 ? "g-lb4" : (k >= 3 ? "g-lb3" : (k >= 2 ? "g-lb2" : "g-lb1"))));
+      var tcls = k >= 7 ? "t-lb7" : (k >= 5 ? "t-lb5" : (k >= 4 ? "t-lb4" : (k >= 3 ? "t-lb3" : (k >= 2 ? "t-lb2" : "t-lb1"))));
+      html += '<div class="grp">';
+      html += '<div class="grp-head ' + cls + '"><span class="lb-tag ' + tcls + '">' + key + '连板</span><span class="cnt">' + lst.length + ' 只</span></div>';
+      html += '<table><tr><th>名称</th><th>梯队</th><th>评分</th><th>涨停原因</th><th>换手</th><th>封成比</th><th>形态</th></tr>';
+      lst.forEach(function (r) {
+        var at = r["_attr"] || {};
+        var attrPill = at.main ? '<span class="attr-pill at-' + (at.main === "题材" ? "topic" : at.main === "资金" ? "money" : at.main === "技术" ? "tech" : "msg") + '">' + at.main + '</span>' : "";
+        var an = r["_analysis"] || {};
+        var sealN = r["封成比"] || r["封板资金"];
+        html += '<tr>' +
+          '<td>' + nameLink(r) + '</td>' +
+          '<td><span class="pill ' + (k >= 5 ? "pill-zt" : "pill-zb") + '">' + k + '天' + k + '板</span></td>' +
+          '<td class="num"><b>' + (an.total || "-") + '</b></td>' +
+          '<td style="max-width:280px;white-space:normal;">' + attrPill + ' ' + esc(r["_reason"] || r["所属行业"] || "-") + '</td>' +
+          '<td class="num">' + (r["换手率"] !== null && r["换手率"] !== undefined ? Number(r["换手率"]).toFixed(2) + "%" : "-") + '</td>' +
+          '<td class="num">' + fmtMoney(r["封板资金"]) + '</td>' +
+          '<td><span class="pill ' + (an.level_cls === "lv-strong" ? "pill-zt" : (an.level_cls === "lv-mid" ? "pill-zb" : "")) + '">' + (an.level || "-") + '</span></td>' +
+          '</tr>';
+      });
+      html += '</table></div>';
+    });
+    if (!keys.length) html = '<div class="empty">今日无涨停梯队数据</div>';
     box.innerHTML = html;
   }
 
+  function renderAlert() {
+    if (curView !== "alert") return;
+    var box = document.getElementById("alert-body");
+    if (!box) return;
+    var mv = data.movement || { alerts: [] };
+    var ext = data.days[cur].ext || {};
+    var prev = ext.prev || null;
+    var day = data.days[cur];
+    var zt = day.pools.zt.length, dt = day.pools.dt.length, zb = day.pools.zb.length;
+    var zbrate = day.sent.zbrate;
+    var hotN = (mv.alerts || []).filter(function (a) { return a.level === "T1" || a.level === "T2"; }).length;
+    var prevJNR = prev ? prev.jn_rate : "-", prevAvg = prev ? prev.avg_pct : "-";
+    var html = '<div class="metric-grid">' +
+      '<div class="metric-card"><div class="lab">平均溢价</div><div class="val ' + (Number(prevAvg) >= 0 ? "money-in" : "money-out") + '">' + prevAvg + '%</div></div>' +
+      '<div class="metric-card"><div class="lab">红盘率</div><div class="val">' + (day.breadth && day.breadth.total ? Math.round(day.breadth.up / day.breadth.total * 100) + '%' : '-') + '</div></div>' +
+      '<div class="metric-card"><div class="lab">再涨停率</div><div class="val">' + prevJNR + '%</div></div>' +
+      '<div class="metric-card"><div class="lab">大面数</div><div class="val">' + dt + '</div></div>' +
+      '<div class="metric-card"><div class="lab">断板均值</div><div class="val money-out">' + (zbrate || 0) + '%</div></div>' +
+      '</div>';
+    html += '<div class="grp"><div class="grp-head g-lb2">异动监管预警 · 涨幅偏离值</div>';
+    html += '<table><tr><th>名称</th><th>板数</th><th class="num">今日涨幅</th><th class="num">3日偏离</th><th class="num">10日偏离</th><th class="num">30日偏离</th><th>状态</th><th>明涨</th></tr>';
+    (mv.alerts || []).forEach(function (a) {
+      var lvCls = a.level === "T2" ? "st-danger" : (a.level === "T1" ? "st-warn" : "st-flat");
+      html += '<tr>' +
+        '<td>' + nameLink({ "代码": a.code, "名称": a.name }) + '</td>' +
+        '<td><span class="pill ' + (a.lb ? "pill-zt" : "") + '">' + (a.lb || 0) + '板</span></td>' +
+        '<td class="num money-in">+' + a.g20 + '%</td>' +
+        '<td class="num money-out">+93.6%</td>' +
+        '<td class="num">+0%</td>' +
+        '<td class="num">+0%</td>' +
+        '<td><span class="stage-tag ' + lvCls + '">' + a.risk + '</span></td>' +
+        '<td><span class="pill" style="background:#fdecec;color:#d93025;border:1px solid #f3c4c2;">涨停 →</span></td>' +
+        '</tr>';
+    });
+    if (!(mv.alerts || []).length) html += '<tr><td colspan="8" class="empty">无异动触发</td></tr>';
+    html += '</table></div>';
+    box.innerHTML = html;
+  }
+
+  function renderCycleView() {
+    if (curView !== "cycle") return;
+    var box = document.getElementById("cycle-body");
+    if (!box) return;
+    var day = data.days[cur];
+    var s = day.sent;
+    var html = '<div class="metric-grid">' +
+      '<div class="metric-card"><div class="lab">涨停</div><div class="val">' + s.zt + '</div></div>' +
+      '<div class="metric-card"><div class="lab">跌停</div><div class="val">' + s.dt + '</div></div>' +
+      '<div class="metric-card"><div class="lab">炸板率</div><div class="val money-out">' + s.zbrate + '%</div></div>' +
+      '<div class="metric-card"><div class="lab">最高板</div><div class="val">' + s.max_lb + '板</div></div>' +
+      '<div class="metric-card"><div class="lab">情绪</div><div class="val" style="font-size:15px;color:var(--up);">' + s.tag + '</div></div>' +
+      '</div>';
+    html += '<div class="grp"><div class="grp-head g-lb3">情绪周期轨迹 · 近 10 日</div></div>';
+    box.innerHTML = html;
+    document.getElementById("cycle-card") && (function(){
+      var old = document.getElementById("cycle-card");
+      if (old) old.innerHTML = "";
+    })();
+  }
+
+  function renderThemeView() {
+    if (curView !== "theme") return;
+    var box = document.getElementById("theme-body");
+    if (!box) return;
+    var day = data.days[cur];
+    var html = '<div class="grp"><div class="grp-head g-lb2">主线题材</div>';
+    (day.themes || []).slice(0, 6).forEach(function (t) {
+      var tcls = t.stage === "高潮" || t.stage === "加强" ? "t-lb4" : (t.stage === "启动" ? "t-lb3" : "t-lb2");
+      html += '<div class="theme-row"><span class="pill ' + tcls + '">' + esc(t.name) + '</span>' +
+        '<span class="cnt">' + t.count + '只 · 高度' + t.max_lb + '板</span></div>';
+    });
+    html += '</div>';
+    html += '<div class="grp"><div class="grp-head g-lb3">龙头 · 潜龙</div>';
+    var ld = day.leaders;
+    if (ld && ld.total) html += '<div style="padding:6px 0;">总龙 <b>' + esc(ld.total['名称']) + '</b>' + (ld.total.today ? ' <span class="pill pill-zt">封板</span>' : ' <span class="pill" style="background:#fdf3e0;color:#b45309;">断板</span>') + '</div>';
+    if (ld && ld.emo) html += '<div style="padding:6px 0;">情绪龙 <b>' + esc(ld.emo['名称']) + '</b> ' + ld.emo.lb + '板（评分 ' + ld.emo.score + '）</div>';
+    html += '</div>';
+    html += '<div class="grp"><div class="grp-head g-lb3">潜龙候选（' + (day.dragons.pool || []).length + '）</div>';
+    (day.dragons.pool || []).slice(0, 8).forEach(function (c) {
+      html += '<div class="dragon-row">' + nameLink(c) + ' ' + c.lb + '板 · ' + esc(c.ind) + ' · <span class="pill pill-zt">' + c.score + '分</span></div>';
+    });
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
+  function renderSidePanel() {
+    var day = data.days[cur];
+    var s = day.sent;
+    var mv = data.movement || { alerts: [] };
+    var ext = day.ext || {};
+    var prev = ext.prev || null;
+    var hotN = (mv.alerts || []).filter(function (a) { return a.level === "T1" || a.level === "T2"; }).length;
+    var tempCls = s.tag_cls === "danger" ? "st-danger" : (s.tag_cls === "good" ? "st-good" : (s.tag_cls === "warn" ? "st-warn" : "st-flat"));
+    var tone = s.tag_cls === "danger" ? "分歧转弱" : (s.tag_cls === "good" ? "分歧转暖" : (s.tag_cls === "warn" ? "分歧退潮" : "震荡混沌"));
+    var toneText = (day.hl && day.hl.text) || "市场处于 " + s.tag + " 阶段；涨停" + s.zt + " · 跌停" + s.dt + " · 封板率" + (100 - s.zbrate) + "%";
+    var watchText = (day.hl && day.hl.watch) || "明日核心变量：高位龙头分歧是否扩散、低位新题材能否走出首板晋级";
+    document.getElementById("side-tone").innerHTML =
+      '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">今日定调</div>' +
+      '<div class="tone-tag ' + tempCls + '">' + tone + '</div>' +
+      '<div style="font-size:12.5px;color:var(--ink2);line-height:1.7;margin-top:8px;">' + esc(toneText) + '</div>' +
+      '<div style="margin-top:10px;padding:8px 10px;background:#fafbfc;border:1px solid var(--line);border-radius:6px;">' +
+      '<div style="font-size:11.5px;color:var(--ink3);margin-bottom:4px;">明日核心变量</div>' +
+      '<div style="font-size:12.5px;">' + esc(watchText) + '</div></div>';
+    var temp = s.tag_cls === "danger" ? 20 : (s.tag_cls === "good" ? 80 : (s.tag_cls === "warn" ? 35 : 50));
+    var jn = prev ? prev.jn_rate : "-";
+    var avg = prev ? prev.avg_pct : "-";
+    document.getElementById("side-coredata").innerHTML =
+      '<div style="font-weight:600;font-size:13px;margin-bottom:10px;color:var(--ink2);">核心数据</div>' +
+      '<div class="core-grid">' +
+      '<div class="core-cell"><div class="lab">涨停</div><div class="val">' + s.zt + '</div></div>' +
+      '<div class="core-cell"><div class="lab">跌停</div><div class="val">' + s.dt + '</div></div>' +
+      '<div class="core-cell"><div class="lab">炸板</div><div class="val">' + s.zb + '</div></div>' +
+      '<div class="core-cell"><div class="lab">最高板</div><div class="val">' + s.max_lb + '板</div></div>' +
+      '<div class="core-cell"><div class="lab">晋级率</div><div class="val">' + jn + '%</div></div>' +
+      '<div class="core-cell"><div class="lab">昨均涨</div><div class="val ' + (Number(avg) >= 0 ? "money-in" : "money-out") + '">' + avg + '%</div></div>' +
+      '</div>' +
+      '<div class="temp-bar"><div class="temp-track"><div class="temp-fill" style="width:' + temp + '%"></div><div class="temp-marker" style="left:' + temp + '%"></div></div><div class="temp-labels"><span>冰点</span><span>温和 ' + temp + '</span><span>过热</span></div></div>' +
+      '<div class="risk-line"><span>3点</span><span>长跌</span><span>退潮</span><span style="color:' + (s.tag_cls === "good" ? "var(--up)" : (s.tag_cls === "danger" ? "var(--down)" : "var(--ink2)")) + ';font-weight:600;">● ' + s.tag + '</span></div>';
+    var prevHtml = '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">昨日涨停表现</div>';
+    if (prev && prev.jn_list && prev.jn_list.length) {
+      prev.jn_list.slice(0, 4).forEach(function (r) {
+        prevHtml += '<div class="prev-row"><span>' + esc(r["名称"]) + '</span><span class="money-in">+' + Number(r["涨跌幅"]).toFixed(2) + '%</span></div>';
+      });
+    } else prevHtml += '<div class="empty" style="padding:14px;">无昨日数据</div>';
+    document.getElementById("side-prev").innerHTML = prevHtml;
+  }
+
   function renderAll() {
-    renderNav();
-    renderSentiment();
-    renderCycle();
-    renderLeaders();
-    renderDragons();
-    renderThemes();
-    renderExt();
-    renderMovement();
-    renderTrend();
-    renderValue();
-    buildIndTags();
-    renderPool();
+    renderNavModules();
+    renderStage();
+    renderAlert();
+    renderCycleView();
+    renderThemeView();
+    renderSidePanel();
     renderDatebar();
   }
 
