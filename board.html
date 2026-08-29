@@ -125,6 +125,28 @@
     th,td{padding:5px 6px;}
     .lhb-row{flex-wrap:wrap;}
   }
+  .desk-grid{display:grid; grid-template-columns:1fr; gap:14px;}
+  .desk-grid .col{display:flex; flex-direction:column; gap:14px;}
+  .desk-grid .card{margin-bottom:0;}
+  @media (min-width:1024px){
+    .desk-grid{grid-template-columns:0.82fr 1.05fr 1.18fr; align-items:start;}
+  }
+  .cycle-wrap{display:flex; align-items:stretch; gap:5px; padding-top:6px;}
+  .cycle-day{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; min-width:0;}
+  .c-bars{display:flex; align-items:flex-end; gap:2px; height:74px; width:100%; justify-content:center;}
+  .c-bar{border-radius:3px 3px 0 0; min-height:3px;}
+  .c-bar.zt{background:var(--red); width:42%;}
+  .c-bar.dt{background:var(--green); width:42%;}
+  .c-maxlb{font-size:12px; color:var(--ink2); font-weight:600;}
+  .c-tag{font-size:10px; padding:0 5px; border-radius:4px; line-height:1.5;}
+  .c-tag.tag-danger{background:var(--redbg); color:var(--red);}
+  .c-tag.tag-good{background:var(--greenbg); color:var(--green);}
+  .c-tag.tag-warn{background:var(--amberbg); color:var(--amber);}
+  .c-tag.tag-flat{background:#f1efe9; color:var(--ink2);}
+  .c-label{font-size:10px; color:var(--ink3);}
+  .cycle-day.cycle-cur .c-maxlb{color:var(--red);}
+  .cycle-day.cycle-cur .c-label{color:var(--red); font-weight:600;}
+  .cycle-hint{font-size:11.5px; color:var(--ink3); margin-top:6px;}
   .prev-stats{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
   .prev-stat{border:1px solid var(--line); border-radius:10px; padding:8px 16px; background:#fbfaf7; text-align:center; min-width:90px;}
   .prev-stat .v{font-size:18px; font-weight:600;}
@@ -180,77 +202,89 @@
     </div>
 
   <div class="panel panel-short">
-  <div class="card">
-    <div id="sentiment"></div>
-  </div>
-
-  <div class="card">
-    <div id="leader-card"></div>
-  </div>
-
-  <div class="card">
-    <div id="dragon-card"></div>
-  </div>
-
-  <div class="card">
-    <div id="themes-card"></div>
-  </div>
-
-  <div class="card">
-    <div id="ext-card"></div>
-  </div>
-
-  <div class="card">
-    <div id="mov-card"></div>
-  </div>
-
-  <div class="card">
-    <div class="filters">
-      <div class="f-item">
-        <label>连板数</label>
-        <select id="f-lb">
-          <option value="0">全部</option>
-          <option value="1">仅首板</option>
-          <option value="2">2板</option>
-          <option value="3">3板</option>
-          <option value="4">4板及以上</option>
-        </select>
+  <div class="desk-grid">
+    <div class="col">
+      <div class="card">
+        <div id="sentiment"></div>
       </div>
-      <div class="f-item">
-        <label>换手率 %</label>
-        <div style="display:flex; gap:6px; align-items:center;">
-          <input type="number" id="f-turn-min" placeholder="0" min="0" max="100">
-          <span style="color:var(--ink3); font-size:12px;">~</span>
-          <input type="number" id="f-turn-max" placeholder="100" min="0" max="100">
-        </div>
+
+      <div class="card">
+        <div id="leader-card"></div>
       </div>
-      <div class="f-item">
-        <label>首次封板时间</label>
-        <select id="f-seal">
-          <option value="all">全部</option>
-          <option value="early">早盘 ≤10:00</option>
-          <option value="mid">盘中 10:00-14:30</option>
-          <option value="late">尾盘 ≥14:30</option>
-        </select>
-      </div>
-      <div class="f-item">
-        <label>炸板次数</label>
-        <select id="f-zb">
-          <option value="all">全部</option>
-          <option value="0">0 次（干净板）</option>
-          <option value="1">≥1 次</option>
-        </select>
-      </div>
-      <div class="f-item">
-        <label>筛选</label>
-        <button class="btn" id="f-reset" type="button">重置</button>
+
+      <div class="card">
+        <div id="mov-card"></div>
       </div>
     </div>
-    <div class="ind-tags" id="ind-tags"></div>
-  </div>
 
-  <div class="card">
-    <div id="pool"></div>
+    <div class="col">
+      <div class="card">
+        <div id="cycle-card"></div>
+      </div>
+
+      <div class="card">
+        <div id="themes-card"></div>
+      </div>
+
+      <div class="card">
+        <div id="dragon-card"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <div class="filters">
+          <div class="f-item">
+            <label>连板数</label>
+            <select id="f-lb">
+              <option value="0">全部</option>
+              <option value="1">仅首板</option>
+              <option value="2">2板</option>
+              <option value="3">3板</option>
+              <option value="4">4板及以上</option>
+            </select>
+          </div>
+          <div class="f-item">
+            <label>换手率 %</label>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <input type="number" id="f-turn-min" placeholder="0" min="0" max="100">
+              <span style="color:var(--ink3); font-size:12px;">~</span>
+              <input type="number" id="f-turn-max" placeholder="100" min="0" max="100">
+            </div>
+          </div>
+          <div class="f-item">
+            <label>首次封板时间</label>
+            <select id="f-seal">
+              <option value="all">全部</option>
+              <option value="early">早盘 ≤10:00</option>
+              <option value="mid">盘中 10:00-14:30</option>
+              <option value="late">尾盘 ≥14:30</option>
+            </select>
+          </div>
+          <div class="f-item">
+            <label>炸板次数</label>
+            <select id="f-zb">
+              <option value="all">全部</option>
+              <option value="0">0 次（干净板）</option>
+              <option value="1">≥1 次</option>
+            </select>
+          </div>
+          <div class="f-item">
+            <label>筛选</label>
+            <button class="btn" id="f-reset" type="button">重置</button>
+          </div>
+        </div>
+        <div class="ind-tags" id="ind-tags"></div>
+      </div>
+
+      <div class="card">
+        <div id="pool"></div>
+      </div>
+
+      <div class="card">
+        <div id="ext-card"></div>
+      </div>
+    </div>
   </div>
   </div>
 
@@ -846,8 +880,43 @@ window.BOARD_DATA = {"dates": ["20260817", "20260818", "20260819", "20260820", "
     box.innerHTML = html;
   }
 
+  function renderCycle() {
+    var box = document.getElementById("cycle-card");
+    if (!box) return;
+    var ds = (data.dates || []).filter(function (d) { return data.days[d]; }).slice(-10);
+    if (ds.length < 3) { box.innerHTML = '<div style="font-weight:600;font-size:15px;">情绪周期轨迹</div><div class="empty">数据积累中</div>'; return; }
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">' +
+      '<div style="font-weight:600;font-size:15px;">情绪周期轨迹 <span style="font-size:11.5px;color:var(--ink3);font-weight:400;">近' + ds.length + '个交易日 · 涨停/跌停柱 + 最高板 + 情绪标签</span></div></div>';
+    var maxN = 1;
+    ds.forEach(function (d) {
+      var s = data.days[d].sent;
+      maxN = Math.max(maxN, s.zt, s.dt);
+    });
+    html += '<div class="cycle-wrap">';
+    ds.forEach(function (d) {
+      var s = data.days[d].sent;
+      var ztH = Math.max(3, Math.round(s.zt / maxN * 74));
+      var dtH = Math.max(3, Math.round(s.dt / maxN * 74));
+      var tagCls = "tag-" + (s.tag_cls || "flat");
+      var cur = (d === data.dates[data.dates.length - 1]);
+      html += '<div class="cycle-day' + (cur ? ' cycle-cur' : '') + '" title="' + d + ' 涨停' + s.zt + ' 跌停' + s.dt + ' ' + s.tag + '">' +
+        '<div class="c-bars">' +
+        '<div class="c-bar zt" style="height:' + ztH + 'px"></div>' +
+        '<div class="c-bar dt" style="height:' + dtH + 'px"></div>' +
+        '</div>' +
+        '<div class="c-maxlb">' + (s.max_lb > 0 ? s.max_lb + '板' : '-') + '</div>' +
+        '<span class="c-tag ' + tagCls + '">' + (s.tag.length > 4 ? s.tag.slice(0, 4) : s.tag) + '</span>' +
+        '<div class="c-label">' + d.slice(4) + '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    html += '<div class="cycle-hint">柱高 = 涨停(红)/跌停(绿)家数 · 数字 = 当日最高板 · 标签 = 情绪状态（当前日高亮）</div>';
+    box.innerHTML = html;
+  }
+
   function renderAll() {
     renderSentiment();
+    renderCycle();
     renderLeaders();
     renderDragons();
     renderThemes();
