@@ -140,8 +140,10 @@
   .desk-grid .col{display:flex; flex-direction:column; gap:14px;}
   .desk-grid .card{margin-bottom:0;}
   @media (min-width:1024px){
-    .desk-grid{grid-template-columns:0.82fr 1.05fr 1.18fr; align-items:start;}
+    .desk-grid{grid-template-columns:0.82fr 1.4fr 1.05fr; align-items:start;}
   }
+  .nav-item{border:1px solid var(--line); border-radius:6px; padding:6px 12px; font-size:12.5px; margin-bottom:5px; cursor:pointer; color:var(--ink2); background:#fff; transition:all .12s;}
+  .nav-item:hover{background:var(--bluebg); color:var(--blue); border-color:#9cc4e8;}
   .cycle-wrap{display:flex; align-items:stretch; gap:5px; padding-top:6px;}
   .cycle-day{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; min-width:0;}
   .c-bars{display:flex; align-items:flex-end; gap:2px; height:74px; width:100%; justify-content:center;}
@@ -215,36 +217,9 @@
 
   <div class="panel panel-short">
   <div class="desk-grid">
-    <div class="col">
+    <div class="col col-nav">
       <div class="card">
-        <div id="sentiment"></div>
-      </div>
-
-      <div class="card">
-        <div id="leader-card"></div>
-      </div>
-
-      <div class="card">
-        <div id="mov-card"></div>
-      </div>
-    </div>
-
-    <div class="col">
-      <div class="card">
-        <div id="cycle-card"></div>
-      </div>
-
-      <div class="card">
-        <div id="themes-card"></div>
-      </div>
-
-      <div class="card">
-        <div id="dragon-card"></div>
-      </div>
-    </div>
-
-    <div class="col">
-      <div class="card">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">涨停池筛选</div>
         <div class="filters">
           <div class="f-item">
             <label>连板数</label>
@@ -290,7 +265,39 @@
       </div>
 
       <div class="card">
+        <div id="nav-card"></div>
+      </div>
+    </div>
+
+    <div class="col col-main">
+      <div class="card">
+        <div id="sentiment"></div>
+      </div>
+
+      <div class="card">
+        <div id="cycle-card"></div>
+      </div>
+
+      <div class="card">
+        <div id="themes-card"></div>
+      </div>
+
+      <div class="card">
+        <div id="leader-card"></div>
+      </div>
+
+      <div class="card">
+        <div id="dragon-card"></div>
+      </div>
+
+      <div class="card">
         <div id="pool"></div>
+      </div>
+    </div>
+
+    <div class="col col-strategy">
+      <div class="card">
+        <div id="mov-card"></div>
       </div>
 
       <div class="card">
@@ -926,7 +933,37 @@ window.BOARD_DATA = {"dates": ["20260817", "20260818", "20260819", "20260820", "
     box.innerHTML = html;
   }
 
+  function renderNav() {
+    var box = document.getElementById("nav-card");
+    if (!box) return;
+    var day = data.days[cur];
+    var s = day.sent;
+    var mv = data.movement || { alerts: [] };
+    var hotN = (mv.alerts || []).filter(function (a) { return a.level === "T1" || a.level === "T2"; }).length;
+    var ld = day.leaders;
+    var html = '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">今日速览</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">' +
+      '<div class="sent-item"><div class="label">情绪</div><div class="value" style="font-size:14px;">' + s.tag + '</div></div>' +
+      '<div class="sent-item"><div class="label">涨停</div><div class="value">' + s.zt + '</div></div>' +
+      '<div class="sent-item"><div class="label">最高板</div><div class="value">' + (s.max_lb > 0 ? s.max_lb + '板' : '-') + '</div></div>' +
+      '<div class="sent-item"><div class="label">异动</div><div class="value ' + (hotN ? "money-in" : "") + '">' + hotN + '</div></div>' +
+      '</div>';
+    if (ld && ld.emo) {
+      html += '<div style="font-size:12px;line-height:1.9;padding:8px 10px;background:#fafbfc;border:1px solid var(--line);border-radius:6px;margin-bottom:10px;">' +
+        '总龙 <b>' + esc(ld.total ? ld.total['名称'] : '-') + '</b>' + (ld.total && !ld.total.today ? ' <span class="pill" style="background:var(--amberbg);color:var(--amber);border:1px solid #f0d9ac;">断板</span>' : '') + '<br>' +
+        '情绪龙 <b>' + esc(ld.emo['名称']) + '</b> ' + ld.emo.lb + '板</div>';
+    }
+    html += '<div style="font-weight:600;font-size:13px;margin:4px 0 6px;color:var(--ink2);">模块导航</div>';
+    [["sentiment", "情绪面板"], ["cycle-card", "周期轨迹"], ["themes-card", "题材聚类"],
+     ["leader-card", "龙头标识"], ["dragon-card", "潜龙候选"], ["pool", "涨停池"],
+     ["mov-card", "异动预警"], ["ext-card", "复盘/席位"]].forEach(function (it) {
+      html += '<div class="nav-item" onclick="document.getElementById(\'' + it[0] + '\').scrollIntoView({behavior:\'smooth\',block:\'start\'})">' + it[1] + '</div>';
+    });
+    box.innerHTML = html;
+  }
+
   function renderAll() {
+    renderNav();
     renderSentiment();
     renderCycle();
     renderLeaders();
