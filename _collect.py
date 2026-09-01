@@ -146,14 +146,17 @@ def _call_timeout(fn, timeout, **kw):
     return box.get("df")
 
 
-def call_with_retry(fn, retries=3, timeout=20, **kw):
+def call_with_retry(fn, retries=3, timeout=20, empty_ok=False, **kw):
     """指数退避重试；akshare 爬虫类接口偶发失败/风控，间隔拉长降低触发概率。
-    2026-08-26 加固：线程级看门狗，任何挂起调用到 timeout 秒即放弃重试，防止脚本无限卡死。"""
+    2026-08-26 加固：线程级看门狗，任何挂起调用到 timeout 秒即放弃重试，防止脚本无限卡死。
+    empty_ok=True：空表视为合法（业务上可能无数据，如无跌停/无炸板日），不重试直接返回。"""
     waits = [5, 15, 30]
     for i in range(retries):
         try:
             df = _call_timeout(fn, timeout, **kw)
             if df is not None and len(df) > 0:
+                return df
+            if empty_ok:
                 return df
             print(f"  [重试{i+1}] 返回空数据")
         except Exception as e:
@@ -163,9 +166,10 @@ def call_with_retry(fn, retries=3, timeout=20, **kw):
 
 
 def fetch_pool(kind, date_str):
-    """采集单类股票池，返回 [{列名: 值}, ...]"""
+    """采集单类股票池，返回 [{列名: 值}, ...]
+    跌停/炸板池空表 = 当日无此池个股（业务合法），不重试；涨停池空表视为异常仍重试。"""
     fn_name = POOLS[kind][0]
-    df = call_with_retry(getattr(ak, fn_name), date=date_str)
+    df = call_with_retry(getattr(ak, fn_name), date=date_str, empty_ok=kind in ("dt", "zb"))
     if df is None:
         return None, None
     rows = df.to_dict(orient="records")
