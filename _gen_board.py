@@ -944,6 +944,115 @@ def analyze_dragons(pools):
     return {"pool": cands[:15]}
 
 
+def analyze_screener(conn, days, dates, trend, value):
+    """选股器：短线/中线/长线三模式，多维评分
+    短线=技术面40+情绪面30+资金面30（涨停池+潜龙）
+    中线=技术面40+基本面40+量价20（趋势池）
+    长线=估值30+质地40+成长30（价值/蓝筹/成长三池）
+    注：业务策略/产品进度暂无数据源，以营收增速为业务动能代理"""
+    d = dates[-1] if dates else None
+    if not d or d not in days:
+        return {"short": [], "mid": [], "long": []}
+    day = days[d]
+
+    # ===== 短线：涨停池 + 潜龙 =====
+    short = []
+    ind_heat = {}
+    for r in day["pools"]["zt"]:
+        ind = r.get("所属行业") or "其他"
+        ind_heat[ind] = ind_heat.get(ind, 0) + 1
+    for r in day["pools"]["zt"]:
+        an = r.get("_analysis") or {}
+        at = r.get("_attr") or {}
+        lb = int(r.get("连板数") or 0)
+        tech = round((an.get("total") or 0) / 15 * 40, 1)  # 技术面：延续性评分
+        emo = min(30, ind_heat.get(r.get("所属行业") or "其他", 0) * 4 + lb * 3)  # 情绪面：题材热度+梯队
+        fund = 0
+        fv = float(r.get("封板资金") or 0)
+        if fv >= 1e8:
+            fund = 20
+        elif fv >= 3e7:
+            fund = 12
+        else:
+            fund = 6
+        t = str(r.get("首次封板时间") or "150000")
+        if int(t[:2]) * 60 + int(t[2:4]) <= 600:
+            fund += 10  # 早盘封板
+        short.append({
+            "code": r.get("代码"), "名称": r.get("名称"), "lb": lb,
+            "score": round(tech + emo + fund, 1),
+            "tech": tech, "emo": emo, "fund": fund,
+            "why": (at.get("main") or "") + "驱动 · " + (r.get("_reason") or ""),
+        })
+    short.sort(key=lambda x: -x["score"])
+
+    # ===== 中线：趋势池 =====
+    mid = []
+    fin = {}
+    for c, roe, rg in conn.execute(
+            "SELECT code, roe, rev_growth FROM fin_hist WHERE roe IS NOT NULL ORDER BY date"):
+        fin[c] = (roe, rg)
+    for r in (trend.get("pool") or []):
+        tscore = r.get("score") or 0
+        tech = round(min(40, tscore / 12 * 40), 1)
+        f = fin.get(r["code"])
+        roe_v = f[0] if f else None
+        rg_v = f[1] if f else None
+        funda = 0
+        if roe_v is not None:
+            funda += 3 if roe_v >= 15 else (2 if roe_v >= 10 else 1)
+        if rg_v is not None and rg_v > 10:
+            funda += 1
+        funda = round(funda / 4 * 40, 1)
+        vol = 20 if r.get("breakout") else (14 if r.get("pullback") else (10 if r.get("high60") else 6))
+        mid.append({
+            "code": r["code"], "名称": r["名称"],
+            "score": round(tech + funda + vol, 1),
+            "tech": tech, "funda": funda, "vol": vol,
+            "why": (r.get("lv") or "") + " · " + ("突破" if r.get("breakout") else ("回踩" if r.get("pullback") else ("新高" if r.get("high60") else "均线多头"))),
+        })
+    mid.sort(key=lambda x: -x["score"])
+
+    # ===== 长线：三池合并 =====
+    long_ = []
+    ai = set()
+    bc = os.path.join(BASE, "growth_watchlist.json")
+    if os.path.exists(bc):
+        try:
+            ai = set(json.load(open(bc, encoding="utf-8")).keys())
+        except Exception:
+            pass
+    for pool_name, pool in [("价值", value.get("pool") or []), ("蓝筹", value.get("bluechip") or []), ("成长", value.get("growth") or [])]:
+        for r in pool:
+            val = 3 if r.get("pe_pct", 100) < 30 else (2 if r.get("pe_pct", 100) < 50 else 1)
+            val = round(val / 3 * 30, 1)
+            roe_v = r.get("roe")
+            debt_v = r.get("debt")
+            q = 0
+            if roe_v is not None:
+                q += 2.5 if roe_v >= 15 else (1.5 if roe_v >= 10 else 0.5)
+            if debt_v is not None:
+                q += 1.5 if debt_v < 50 else 0.5
+            q = round(q / 4 * 40, 1)
+            rg = r.get("rev_g")
+            g = 0
+            if rg is not None:
+                g += 2 if rg > 30 else (1.2 if rg > 10 else 0.4)
+            if r["code"] in ai:
+                g += 1  # AI 硬件链标签（业务动能）
+            g = round(min(3, g) / 3 * 30, 1)
+            long_.append({
+                "code": r["code"], "名称": r["名称"], "pool": pool_name,
+                "score": round(val + q + g, 1),
+                "val": val, "q": q, "g": g,
+                "pe_pct": r.get("pe_pct"), "roe": roe_v, "rev_g": rg,
+                "ai": r["code"] in ai,
+                "why": r.get("val_tag", "") + " · ROE" + (str(roe_v) + "%" if roe_v is not None else "-") + (" · AI硬件链" if r["code"] in ai else ""),
+            })
+    long_.sort(key=lambda x: -x["score"])
+    return {"short": short[:20], "mid": mid[:20], "long": long_[:20]}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -968,8 +1077,9 @@ def build(dates):
     value = analyze_value(conn)
     movement = analyze_movement(conn)
     lowpos = analyze_lowpos(conn)
+    screener = analyze_screener(conn, days, dates, trend, value)
     conn.close()
-    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement, "lowpos": lowpos}
+    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement, "lowpos": lowpos, "screener": screener}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -1162,6 +1272,13 @@ TEMPLATE = r"""<!DOCTYPE html>
   .theme-row,.dragon-row{padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
   .theme-row:last-child,.dragon-row:last-child{border-bottom:none;}
   .view .card{padding:14px 16px;}
+  .scr-tabs{display:flex;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;}
+  .scr-btn{border:none;background:#fff;padding:5px 16px;font-size:12.5px;cursor:pointer;color:var(--ink2);border-right:1px solid var(--line);}
+  .scr-btn:last-child{border-right:none;}
+  .scr-btn:hover{background:#f2f4f7;}
+  .scr-btn.active{background:var(--blue);color:#fff;font-weight:600;}
+  .scr-note{font-size:11.5px;color:var(--ink3);background:#f6f8fa;border:1px solid var(--line);border-radius:6px;padding:6px 10px;margin-bottom:10px;line-height:1.6;}
+  .scr-score{color:var(--blue);font-size:13px;}
   @media (max-width:1023px){
     .col-nav{order:1;} .col-main{order:2;} .col-side{order:3;}
     .metric-grid{grid-template-columns:repeat(3,1fr);}
@@ -1217,6 +1334,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .sig-pb{background:var(--amberbg); color:var(--amber); border:1px solid #f0d9ac;}
   .sig-hi{background:var(--bluebg); color:var(--blue); border:1px solid #9cc4e8;}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -1323,6 +1441,20 @@ TEMPLATE = r"""<!DOCTYPE html>
         <div class="card">
           <div class="toolbar"><div class="tb-title">主线 · 龙头 · 潜龙</div></div>
           <div id="theme-body"></div>
+        </div>
+      </div>
+      <div class="view" id="view-screener" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">多因子选股器 <span class="cnt" id="scr-cnt"></span></div>
+            <div class="scr-tabs">
+              <button class="scr-btn active" data-m="short" onclick="setScrMode('short')">短线</button>
+              <button class="scr-btn" data-m="mid" onclick="setScrMode('mid')">中线</button>
+              <button class="scr-btn" data-m="long" onclick="setScrMode('long')">长线</button>
+            </div>
+          </div>
+          <div class="scr-note" id="scr-note"></div>
+          <div id="scr-body"></div>
         </div>
       </div>
     </div>
@@ -1973,11 +2105,16 @@ window.BOARD_DATA = __DATA__;
     curView = name;
     document.querySelectorAll(".view").forEach(function (v) { v.style.display = "none"; });
     var el = document.getElementById("view-" + name);
-    if (el) el.style.display = "";
+    if (el) {
+      el.style.display = "";
+      if (window.gsap && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+        gsap.fromTo(el, { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.35, ease: "power2.out", clearProps: "all" });
+      }
+    }
     document.querySelectorAll(".mod-btn").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-mod") === name);
     });
-    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头" };
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
     renderAll();
@@ -1992,6 +2129,7 @@ window.BOARD_DATA = __DATA__;
       { k: "alert",  t: "异动预警", i: "△" },
       { k: "cycle",  t: "情绪周期", i: "∿" },
       { k: "theme",  t: "主线龙头", i: "★" },
+      { k: "screener", t: "选股器", i: "◎" },
     ];
     var h = "";
     items.forEach(function (it) {
@@ -2181,12 +2319,62 @@ window.BOARD_DATA = __DATA__;
     document.getElementById("side-prev").innerHTML = prevHtml;
   }
 
+  var scrMode = "short";
+  function setScrMode(m) {
+    scrMode = m;
+    document.querySelectorAll(".scr-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-m") === m); });
+    renderScreener();
+  }
+  window.setScrMode = setScrMode;
+
+  function renderScreener() {
+    if (curView !== "screener") return;
+    var box = document.getElementById("scr-body");
+    if (!box) return;
+    var sc = data.screener || { short: [], mid: [], long: [] };
+    var notes = {
+      short: "短线多维：技术面40（延续性评分）+ 情绪面30（题材热度×梯队位置）+ 资金面30（封板资金×封板时间）· 候选=当日涨停池",
+      mid: "中线多维：技术面40（趋势状态/RS/信号）+ 基本面40（ROE×营收增速）+ 量价20（突破/回踩/新高）· 候选=趋势池",
+      long: "长线多维：估值30（PE 5年分位）+ 质地40（ROE×负债率）+ 成长30（营收增速×AI硬件链标签）· 候选=价值/蓝筹/成长三池"
+    };
+    var noteEl = document.getElementById("scr-note");
+    if (noteEl) noteEl.textContent = notes[scrMode] || "";
+    var cols = {
+      short: [["tech", "技术面"], ["emo", "情绪面"], ["fund", "资金面"]],
+      mid: [["tech", "技术面"], ["funda", "基本面"], ["vol", "量价"]],
+      long: [["val", "估值"], ["q", "质地"], ["g", "成长"]]
+    }[scrMode];
+    var lst = sc[scrMode] || [];
+    var cntEl = document.getElementById("scr-cnt");
+    if (cntEl) cntEl.textContent = lst.length + " 只候选 · " + ({ short: "短线", mid: "中线", long: "长线" }[scrMode]) + "模式";
+    var html = '<table><thead><tr><th>#</th><th>名称</th><th class="num">综合分</th>';
+    cols.forEach(function (c) { html += '<th class="num">' + c[1] + '</th>'; });
+    html += '<th>核心理由</th></tr></thead><tbody>';
+    lst.forEach(function (r, i) {
+      html += '<tr>' +
+        '<td class="code">' + (i + 1) + '</td>' +
+        '<td>' + nameLink(r) + (r.lb ? ' <span class="pill pill-zt">' + r.lb + '板</span>' : '') + (r.ai ? ' <span class="attr-pill at-topic">AI链</span>' : '') + '</td>' +
+        '<td class="num"><b class="scr-score">' + r.score + '</b></td>';
+      cols.forEach(function (c) { html += '<td class="num">' + (r[c[0]] !== undefined ? r[c[0]] : '-') + '</td>'; });
+      html += '<td style="max-width:260px;white-space:normal;font-size:11.5px;color:var(--ink2);">' + esc(r.why || "") + '</td>' +
+        '</tr>';
+    });
+    if (!lst.length) html += '<tr><td colspan="' + (4 + cols.length) + '" class="empty">无候选</td></tr>';
+    html += '</tbody></table>';
+    html += '<div class="cycle-hint">业务策略/产品进度维度暂无数据源，成长模式下以营收增速+AI硬件链标签为业务动能代理 · 评分仅供研究参考</div>';
+    box.innerHTML = html;
+    if (window.gsap) {
+      gsap.from(box.querySelectorAll("tbody tr"), { autoAlpha: 0, y: 10, duration: 0.35, stagger: 0.03, ease: "power2.out", clearProps: "all" });
+    }
+  }
+
   function renderAll() {
     renderNavModules();
     renderStage();
     renderAlert();
     renderCycleView();
     renderThemeView();
+    renderScreener();
     renderSidePanel();
     renderDatebar();
   }
@@ -2218,6 +2406,45 @@ window.BOARD_DATA = __DATA__;
 
   bindFilters();
   renderAll();
+
+  // ===== GSAP 动画层（CDN 加载失败时优雅降级为无动画）=====
+  var prefersReduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function fx(fn) { if (window.gsap && !prefersReduced) fn(window.gsap); }
+
+  // ① 首屏：三栏卡片 stagger 入场
+  fx(function (g) {
+    g.from(".desk-grid .card", { autoAlpha: 0, y: 18, duration: 0.5, stagger: 0.07, ease: "power2.out", clearProps: "all" });
+  });
+
+  // ② 数字滚动（指标卡/核心数据）
+  fx(function (g) {
+    document.querySelectorAll(".metric-card .val, .core-cell .val").forEach(function (el) {
+      var m = el.textContent.trim().match(/^(-?\d+\.?\d*)(.*)$/);
+      if (!m) return;
+      var target = parseFloat(m[1]);
+      if (isNaN(target) || target === 0) return;
+      var dec = m[1].indexOf(".") >= 0 ? 1 : 0;
+      var suffix = m[2];
+      var obj = { v: 0 };
+      g.to(obj, { v: target, duration: 0.8, ease: "power2.out", onUpdate: function () {
+        el.textContent = (dec ? obj.v.toFixed(1) : Math.round(obj.v)) + suffix;
+      }});
+    });
+  });
+
+  // ③ 温度计填充动画
+  fx(function (g) {
+    var f = document.querySelector(".temp-fill");
+    if (f) g.from(f, { width: 0, duration: 0.9, ease: "power2.out" });
+    var mk = document.querySelector(".temp-marker");
+    if (mk) g.from(mk, { left: "0%", duration: 0.9, ease: "power2.out" });
+  });
+
+  // ④ 梯队分组块 stagger
+  fx(function (g) {
+    var grps = document.querySelectorAll("#stage-body .grp");
+    if (grps.length) g.from(grps, { autoAlpha: 0, y: 14, duration: 0.45, stagger: 0.08, ease: "power2.out", clearProps: "all" });
+  });
 })();
 </script>
 </body>
