@@ -944,6 +944,16 @@ def analyze_dragons(pools):
     return {"pool": cands[:15]}
 
 
+def load_news(conn, limit=200):
+    """公告资讯：按发布时间倒序"""
+    rows = conn.execute(
+        "SELECT pub_time, title, summary, link, source, category, sentiment, reason "
+        "FROM news ORDER BY pub_time DESC LIMIT ?", (limit,)).fetchall()
+    return [{"pub_time": r[0] or "", "title": r[1], "summary": r[2] or "",
+             "link": r[3] or "", "source": r[4], "category": r[5],
+             "sentiment": r[6], "reason": r[7] or ""} for r in rows]
+
+
 def analyze_screener(conn, days, dates, trend, value):
     """选股器：短线/中线/长线三模式，多维评分
     短线=技术面40+情绪面30+资金面30（涨停池+潜龙）
@@ -1078,8 +1088,9 @@ def build(dates):
     movement = analyze_movement(conn)
     lowpos = analyze_lowpos(conn)
     screener = analyze_screener(conn, days, dates, trend, value)
+    news = load_news(conn)
     conn.close()
-    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement, "lowpos": lowpos, "screener": screener}
+    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement, "lowpos": lowpos, "screener": screener, "news": news}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -1282,9 +1293,32 @@ TEMPLATE = r"""<!DOCTYPE html>
   .scr-btn{border:none;background:#fff;padding:5px 16px;font-size:12.5px;cursor:pointer;color:var(--ink2);border-right:1px solid var(--line);}
   .scr-btn:last-child{border-right:none;}
   .scr-btn:hover{background:var(--panel-2);}
-  .scr-btn.active{background:var(--blue);color:#fff;font-weight:600;}
+  .scr-btn.active{background:var(--accent);color:#fff;font-weight:600;}
   .scr-note{font-size:11.5px;color:var(--ink3);background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;margin-bottom:10px;line-height:1.6;}
   .scr-score{color:var(--blue);font-size:13px;}
+  .news-cats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+  .cat-btn{border:1px solid var(--border);background:var(--panel-2);border-radius:999px;padding:4px 14px;font-size:12.5px;cursor:pointer;color:var(--ink2);}
+  .cat-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .cat-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600;}
+  .cat-btn .n{font-size:11px;opacity:.75;margin-left:2px;}
+  .tl{position:relative;padding-left:18px;}
+  .tl::before{content:"";position:absolute;left:4px;top:6px;bottom:6px;width:1px;background:var(--border);}
+  .tl-item{position:relative;padding:0 0 14px 0;margin-bottom:12px;border-bottom:1px dashed var(--border);}
+  .tl-item:last-child{border-bottom:none;margin-bottom:0;}
+  .tl-item::before{content:"";position:absolute;left:-17px;top:5px;width:7px;height:7px;border-radius:50%;background:var(--accent);}
+  .tl-time{font-size:11px;color:var(--ink3);font-family:Consolas,monospace;margin-bottom:3px;display:flex;align-items:center;gap:8px;}
+  .tl-src{font-size:10px;background:var(--panel-2);border-radius:4px;padding:0 6px;color:var(--ink3);}
+  .tl-title{font-size:13.5px;font-weight:600;color:var(--ink);text-decoration:none;line-height:1.5;display:block;}
+  .tl-title:hover{color:var(--accent);}
+  .tl-sum{font-size:12px;color:var(--ink2);line-height:1.65;margin-top:4px;}
+  .kw{color:var(--up);font-weight:700;font-style:normal;background:var(--upbg);border-radius:3px;padding:0 2px;}
+  .ana{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:7px;padding:6px 10px;border-radius:8px;font-size:11.5px;background:var(--panel-2);}
+  .ana.pos .ana-tag{background:var(--upbg);color:var(--up);border:1px solid #f3c4c2;}
+  .ana.neg .ana-tag{background:var(--downbg);color:var(--down);border:1px solid #c2e3cc;}
+  .ana.neu .ana-tag{background:var(--panel-2);color:var(--ink3);border:1px solid var(--border);}
+  .ana-tag{font-weight:600;padding:1px 8px;border-radius:5px;font-size:11px;}
+  .ana-why{color:var(--ink2);flex:1;min-width:180px;}
+  .ana-cat{color:var(--ink3);font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 6px;}
   @media (max-width:1023px){
     .col-nav{order:1;} .col-main{order:2;} .col-side{order:3;}
     .metric-grid{grid-template-columns:repeat(3,1fr);}
@@ -1450,6 +1484,15 @@ TEMPLATE = r"""<!DOCTYPE html>
           <div id="theme-body"></div>
         </div>
       </div>
+      <div class="view" id="view-news" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">公告资讯 <span class="cnt" id="news-cnt"></span></div>
+            <div class="tb-tip">按发布时间倒序 · 关键词红字高亮</div>
+          </div>
+          <div id="news-body"></div>
+        </div>
+      </div>
       <div class="view" id="view-screener" style="display:none">
         <div class="card">
           <div class="toolbar">
@@ -1466,10 +1509,10 @@ TEMPLATE = r"""<!DOCTYPE html>
       </div>
     </div>
 
-    <div class="col col-side">
-      <div class="card">
-        <div id="side-tone"></div>
-      </div>
+      <div class="col col-side">
+        <div class="card">
+          <div id="side-tone"></div>
+        </div>
       <div class="card">
         <div id="side-coredata"></div>
       </div>
@@ -2122,7 +2165,7 @@ window.BOARD_DATA = __DATA__;
     document.querySelectorAll(".mod-btn").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-mod") === name);
     });
-    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器" };
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
     renderAll();
@@ -2138,6 +2181,7 @@ window.BOARD_DATA = __DATA__;
       { k: "cycle",  t: "情绪周期", i: "∿" },
       { k: "theme",  t: "主线龙头", i: "★" },
       { k: "screener", t: "选股器", i: "◎" },
+      { k: "news", t: "公告资讯", i: "❐" },
     ];
     var h = "";
     items.forEach(function (it) {
@@ -2376,6 +2420,67 @@ window.BOARD_DATA = __DATA__;
     }
   }
 
+  var newsCat = "全部";
+  var NEWS_KW = ["利好", "利空", "减持", "增持", "回购", "质押", "问询函", "关注函", "监管函",
+                 "立案", "处罚", "预增", "预减", "业绩预告", "业绩", "净利", "营收", "增长",
+                 "下滑", "中标", "分红", "退市", "冻结", "商誉减值", "政策", "降准", "降息",
+                 "CPI", "PPI", "PMI", "GDP", "社融", "涨停"];
+  function hlKw(s) {
+    var out = esc(s);
+    NEWS_KW.forEach(function (w) {
+      out = out.split(w).join('<em class="kw">' + w + '</em>');
+    });
+    return out;
+  }
+  window.setNewsCat = function (c) { newsCat = c; renderNews(); };
+
+  function renderNews() {
+    if (curView !== "news") return;
+    var box = document.getElementById("news-body");
+    if (!box) return;
+    var list = data.news || [];
+    var cntMap = { "全部": list.length };
+    list.forEach(function (n) { cntMap[n.category] = (cntMap[n.category] || 0) + 1; });
+    var cats = ["全部", "业绩", "增减持", "回购", "质押", "问询", "政策", "宏观", "观点", "其他"];
+    var html = '<div class="news-cats">';
+    cats.forEach(function (c) {
+      if (!cntMap[c]) return;
+      html += '<button class="cat-btn' + (newsCat === c ? " active" : "") + '" onclick="setNewsCat(\'' + c + '\')">' + c + ' <span class="n">' + cntMap[c] + '</span></button>';
+    });
+    html += '</div>';
+    var shown = list.filter(function (n) { return newsCat === "全部" || n.category === newsCat; });
+    var cntEl = document.getElementById("news-cnt");
+    if (cntEl) cntEl.textContent = shown.length + " 条 · " + newsCat;
+    if (!shown.length) {
+      box.innerHTML = html + '<div class="empty">该分类暂无资讯</div>';
+      return;
+    }
+    html += '<div class="tl">';
+    shown.slice(0, 60).forEach(function (n) {
+      var cls = n.sentiment === "利好" ? "pos" : (n.sentiment === "利空" ? "neg" : "neu");
+      var tagTxt = n.sentiment === "中性" ? "中性观察" : n.sentiment;
+      var why = n.reason ? ("关键词命中：" + esc(n.reason)) : "无明确多空关键词，判定为中性";
+      var title = n.link ? '<a href="' + esc(n.link) + '" target="_blank" rel="noopener" class="tl-title">' + hlKw(n.title) + '</a>'
+                         : '<span class="tl-title">' + hlKw(n.title) + '</span>';
+      html += '<div class="tl-item">' +
+        '<div class="tl-time">' + esc(String(n.pub_time).slice(5, 16)) + '<span class="tl-src">' + esc(n.source || "") + '</span></div>' +
+        title +
+        (n.summary ? '<div class="tl-sum">' + hlKw(String(n.summary).slice(0, 160)) + '</div>' : '') +
+        '<div class="ana ' + cls + '">' +
+          '<span class="ana-tag">' + tagTxt + '</span>' +
+          '<span class="ana-why">' + why + '</span>' +
+          '<span class="ana-cat">' + esc(n.category) + '</span>' +
+        '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    html += '<div class="cycle-hint">结论由关键词规则自动判定（利好/利空词表），仅供参考；结构化公告（问询函、股东减持、股权质押等）可通过 news_manual.json 人工补充</div>';
+    box.innerHTML = html;
+    if (window.gsap) {
+      gsap.from(box.querySelectorAll(".tl-item"), { autoAlpha: 0, y: 10, duration: 0.35, stagger: 0.03, ease: "power2.out", clearProps: "all" });
+    }
+  }
+
   function renderAll() {
     renderNavModules();
     renderStage();
@@ -2383,6 +2488,7 @@ window.BOARD_DATA = __DATA__;
     renderCycleView();
     renderThemeView();
     renderScreener();
+    renderNews();
     renderSidePanel();
     renderDatebar();
   }

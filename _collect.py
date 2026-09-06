@@ -10,6 +10,7 @@ A股行情看板 · P0 数据采集器
     python _collect.py --date=20260818 --force  # 强制重采（覆盖已有）
 """
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -109,7 +110,110 @@ def get_conn():
         "date TEXT, code TEXT, seat TEXT, buy_amt REAL, sell_amt REAL, net REAL, "
         "reason TEXT, PRIMARY KEY(date, code, seat, reason))"
     )
+    # 公告资讯（新浪快讯/财经早餐 + 人工补充）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS news("
+        "id TEXT PRIMARY KEY, date TEXT, pub_time TEXT, title TEXT, summary TEXT, "
+        "link TEXT, source TEXT, category TEXT DEFAULT '其他', "
+        "sentiment TEXT DEFAULT '中性', reason TEXT DEFAULT '')"
+    )
     return conn
+
+
+NEWS_RULES = {
+    "业绩": ["业绩预告", "预增", "预减", "净利", "营收", "年报", "中报", "季报", "扭亏", "业绩"],
+    "增减持": ["增持", "减持", "举牌", "要约收购", "股份转让"],
+    "回购": ["回购", "注销股份", "回购注销"],
+    "质押": ["质押", "解押", "冻结", "司法"],
+    "问询": ["问询函", "关注函", "监管函", "立案", "处罚", "警示函", "监管措施"],
+    "政策": ["政策", "央行", "证监会", "国务院", "发改委", "财政部", "降准", "降息",
+             "利率", "新规", "指导意见", "部署", "会议"],
+    "宏观": ["GDP", "CPI", "PPI", "PMI", "社融", "出口", "失业率", "工业增加值", "经济数据"],
+    "观点": ["券商", "机构", "首席", "分析师", "研报", "策略", "预计", "认为", "看好"],
+}
+NEWS_POS = ["预增", "业绩增长", "扭亏", "增持", "回购", "中标", "获批", "分红", "超预期",
+            "突破", "涨价", "降准", "降息", "利好", "看好", "扩张", "创新高", "增长", "提升", "新高"]
+NEWS_NEG = ["减持", "预减", "亏损", "下滑", "质押", "问询函", "关注函", "监管函", "立案",
+            "处罚", "警示", "退市", "冻结", "不及预期", "下调", "收缩", "风险", "违约", "诉讼", "商誉减值"]
+# 相关度过滤：只保留与 A股市场 / 政策 / 宏观 / 公司基本面 相关的资讯
+NEWS_REL = ["A股", "沪指", "深证", "创业板", "科创板", "北交所", "港股", "涨停", "跌停",
+            "证监会", "交易所", "IPO", "上市", "退市", "基金", "券商", "机构", "北向", "主力",
+            "央行", "财政部", "发改委", "工信部", "国资委", "政策", "新规", "监管",
+            "降准", "降息", "GDP", "CPI", "PPI", "PMI", "社融", "经济数据",
+            "回购", "减持", "增持", "质押", "问询", "业绩", "营收", "净利", "预增", "预减",
+            "分红", "中标", "订单", "并购", "重组", "定增", "股东", "股价", "上市公司"]
+
+
+def classify_news(text):
+    """返回 (分类, 情感, 依据关键词串)"""
+    cat = "其他"
+    for k, kws in NEWS_RULES.items():
+        if any(w in text for w in kws):
+            cat = k
+            break
+    pos_hits = [w for w in NEWS_POS if w in text]
+    neg_hits = [w for w in NEWS_NEG if w in text]
+    if len(neg_hits) > len(pos_hits):
+        sent, hits = "利空", neg_hits
+    elif pos_hits:
+        sent, hits = "利好", pos_hits
+    else:
+        sent, hits = "中性", []
+    return cat, sent, "、".join(hits[:4])
+
+
+def fetch_news(conn, date_str, now):
+    """公告资讯：新浪全球快讯 + 财经早餐（自动）+ news_manual.json（人工补充）"""
+    rows = []
+
+    def _add(title, summary, pub_time, link, source):
+        text = f"{title} {summary}"
+        # 相关度过滤：自动源只保留 A股/政策/宏观/基本面相关（人工源不过滤）
+        if source != "人工" and not any(w in text for w in NEWS_REL):
+            return
+        cat, sent, reason = classify_news(text)
+        nid = hashlib.md5(f"{title}|{pub_time}".encode("utf-8")).hexdigest()[:16]
+        rows.append((nid, date_str, pub_time, str(title)[:120], str(summary)[:400],
+                     str(link)[:300], source, cat, sent, reason))
+
+    for fn_name, src in [("stock_info_global_em", "新浪快讯"), ("stock_info_cjzc_em", "财经早餐")]:
+        fn = getattr(ak, fn_name, None)
+        if not fn:
+            continue
+        df = call_with_retry(fn, retries=2)
+        if df is None or df.empty:
+            continue
+        for r in df.to_dict(orient="records"):
+            pt = str(r.get("发布时间", "")) or ""
+            title = str(r.get("标题", "")).strip()
+            if not title:
+                continue
+            if pt[:10].replace("-", "") not in (date_str, "", None) and pt[:10].replace("-", "") < date_str:
+                # 只保留当日及之后的（新浪返回最新 N 条）
+                if pt[:10].replace("-", "") < date_str:
+                    continue
+            _add(title, str(r.get("摘要", ""))[:400], pt, r.get("链接", ""), src)
+        time.sleep(0.3)
+
+    # 人工补充（结构化公告：问询函/减持/质押/业绩预告等，接口不可用时手动维护）
+    mf = os.path.join(BASE, "news_manual.json")
+    if os.path.exists(mf):
+        try:
+            for ev in json.load(open(mf, encoding="utf-8")).get("events", []):
+                _add(ev.get("title", ""), ev.get("summary", ""),
+                     ev.get("pub_time", date_str + " 18:00"),
+                     ev.get("link", ""), ev.get("source", "人工"))
+        except Exception:
+            pass
+
+    if not rows:
+        print("[跳过] 资讯为空")
+        return
+    conn.executemany(
+        "INSERT OR REPLACE INTO news(id,date,pub_time,title,summary,link,source,category,"
+        "sentiment,reason) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+    conn.commit()
+    print(f"[OK] 公告资讯 {len(rows)} 条", flush=True)
 
 
 def load_trade_cal(conn):
@@ -506,6 +610,7 @@ def main():
 
     # P5 数据：价值候选池（估值 + 财务，独立增量）
     fetch_value(conn, date_str, now)
+    fetch_news(conn, date_str, now)
 
     if not args.force and conn.execute(
         "SELECT 1 FROM collect_log WHERE date=? AND status='ok'", (date_str,)
