@@ -944,6 +944,119 @@ def analyze_dragons(pools):
     return {"pool": cands[:15]}
 
 
+def analyze_promotion(days, dates):
+    """板块晋级率：各板块首板率 / 一进二 / 二进三 / 三进四 + 同比昨日
+    晋级归属 = 今日股票所在板块；比率 = 今日晋级数/昨日基数"""
+    if len(dates) < 2:
+        return []
+    d, pd_ = dates[-1], dates[-2]
+    day, pday = days[d], days[pd_]
+    zt, pzt = day["pools"]["zt"], pday["pools"]["zt"]
+    # 今日/昨日 代码→(连板数, 行业)
+    cur = {r.get("代码"): (int(r.get("连板数") or 0), r.get("所属行业") or "其他") for r in zt}
+    prv = {r.get("代码"): (int(r.get("连板数") or 0), r.get("所属行业") or "其他") for r in pzt}
+    stats = {}  # ind -> dict
+
+    def S(ind):
+        return stats.setdefault(ind, {"n": 0, "fb": 0, "j12": 0, "j23": 0, "j34": 0,
+                                      "p_fb": 0, "p_j12": 0, "p_j23": 0, "p_j34": 0,
+                                      "p_base1": 0, "p_base2": 0, "p_base3": 0})
+
+    # 今日：各板块涨停结构
+    for code, (lb, ind) in cur.items():
+        s = S(ind)
+        s["n"] += 1
+        if lb == 1:
+            s["fb"] += 1
+    # 昨日基数：昨日首板/2板/3板数（按今日归属板块计）
+    for code, (lb, ind) in prv.items():
+        if lb == 1:
+            S(ind)["p_base1"] += 1
+        elif lb == 2:
+            S(ind)["p_base2"] += 1
+        elif lb == 3:
+            S(ind)["p_base3"] += 1
+    # 晋级：昨日 lb=n 的股票今日 lb=n+1
+    for code, (lb, ind) in prv.items():
+        clb = cur.get(code, (0, None))[0]
+        if clb and clb == lb + 1:
+            s = S(ind)
+            if lb == 1:
+                s["j12"] += 1
+            elif lb == 2:
+                s["j23"] += 1
+            elif lb == 3:
+                s["j34"] += 1
+    # 昨日的板块晋级率（同比用）：昨日 vs 前日
+    prev_day_stats = {}
+    if len(dates) >= 3:
+        pp_d = dates[-3]
+        pp_day = days[pp_d]
+        pcur = {r.get("代码"): (int(r.get("连板数") or 0), r.get("所属行业") or "其他") for r in pday["pools"]["zt"]}
+        pprv = {r.get("代码"): (int(r.get("连板数") or 0), r.get("所属行业") or "其他") for r in pp_day["pools"]["zt"]}
+        for code, (lb, ind) in pprv.items():
+            st = prev_day_stats.setdefault(ind, {"fb": 0, "n": 0, "j12": 0, "j23": 0, "j34": 0, "b1": 0, "b2": 0, "b3": 0})
+            clb = pcur.get(code, (0, None))[0]
+            st["n"] += 1
+            if lb == 1:
+                st["fb"] += 1
+            if lb == 1:
+                st["b1"] += 1
+            elif lb == 2:
+                st["b2"] += 1
+            elif lb == 3:
+                st["b3"] += 1
+            if clb and clb == lb + 1:
+                if lb == 1:
+                    st["j12"] += 1
+                elif lb == 2:
+                    st["j23"] += 1
+                elif lb == 3:
+                    st["j34"] += 1
+    # 装配输出
+    out = []
+    for ind, s in stats.items():
+        fb_rate = round(s["fb"] / s["n"] * 100, 1) if s["n"] else 0
+        j12_rate = round(s["j12"] / s["p_base1"] * 100, 1) if s["p_base1"] else None
+        j23_rate = round(s["j23"] / s["p_base2"] * 100, 1) if s["p_base2"] else None
+        j34_rate = round(s["j34"] / s["p_base3"] * 100, 1) if s["p_base3"] else None
+        p = prev_day_stats.get(ind) or {}
+        p_fb = round(p["fb"] / p["n"] * 100, 1) if p.get("n") else None
+        p_j12 = round(p["j12"] / p["b1"] * 100, 1) if p.get("b1") else None
+        p_j23 = round(p["j23"] / p["b2"] * 100, 1) if p.get("b2") else None
+        p_j34 = round(p["j34"] / p["b3"] * 100, 1) if p.get("b3") else None
+        out.append({
+            "ind": ind, "n": s["n"], "fb": s["fb"], "fb_rate": fb_rate,
+            "j12": s["j12"], "j12_rate": j12_rate, "j23": s["j23"], "j23_rate": j23_rate,
+            "j34": s["j34"], "j34_rate": j34_rate,
+            "fb_prev": p_fb, "j12_prev": p_j12, "j23_prev": p_j23, "j34_prev": p_j34,
+        })
+    out.sort(key=lambda x: (-x["n"], -(x["j12_rate"] or 0)))
+    return out
+
+
+def build_name_map(conn, dates):
+    """股票名→代码 映射（资讯企业链接用），来源：涨停池/趋势候选/watchlist"""
+    names = {}
+    for d in (dates[-5:] if dates else []):
+        for c, n in conn.execute(
+                "SELECT code, name FROM pool_daily WHERE date=? AND pool_type='zt'", (d,)):
+            if n and len(str(n)) >= 2:
+                names.setdefault(str(n), c)
+    for c, n in conn.execute("SELECT code, name FROM trend_cand"):
+        if n and len(str(n)) >= 2:
+            names.setdefault(str(n), c)
+    for fn in ("value_watchlist.json", "bluechip_watchlist.json", "growth_watchlist.json"):
+        wl = os.path.join(BASE, fn)
+        if os.path.exists(wl):
+            try:
+                for c, n in json.load(open(wl, encoding="utf-8")).items():
+                    names.setdefault(n, c)
+            except Exception:
+                pass
+    return names
+
+
 def load_news(conn, limit=200):
     """公告资讯：按发布时间倒序"""
     rows = conn.execute(
@@ -1089,8 +1202,12 @@ def build(dates):
     lowpos = analyze_lowpos(conn)
     screener = analyze_screener(conn, days, dates, trend, value)
     news = load_news(conn)
+    promotion = analyze_promotion(days, dates)
+    news_map = build_name_map(conn, dates)
     conn.close()
-    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement, "lowpos": lowpos, "screener": screener, "news": news}
+    return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
+            "lowpos": lowpos, "screener": screener, "news": news,
+            "promotion": promotion, "newsMap": news_map}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -1296,6 +1413,13 @@ TEMPLATE = r"""<!DOCTYPE html>
   .scr-btn.active{background:var(--accent);color:#fff;font-weight:600;}
   .scr-note{font-size:11.5px;color:var(--ink3);background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;margin-bottom:10px;line-height:1.6;}
   .scr-score{color:var(--blue);font-size:13px;}
+  .d-up{color:var(--up);font-weight:600;}
+  .d-dn{color:var(--down);font-weight:600;}
+  .d-flat{color:var(--ink2);}
+  .d-none{color:var(--ink3);}
+  .d-base{font-size:10px;color:var(--ink3);margin-left:2px;}
+  .co-link{color:var(--accent);font-weight:600;text-decoration:none;border-bottom:1px dashed var(--accent);}
+  .co-link:hover{background:var(--accent-soft);}
   .news-cats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
   .cat-btn{border:1px solid var(--border);background:var(--panel-2);border-radius:999px;padding:4px 14px;font-size:12.5px;cursor:pointer;color:var(--ink2);}
   .cat-btn:hover{border-color:var(--accent);color:var(--accent);}
@@ -1461,6 +1585,9 @@ TEMPLATE = r"""<!DOCTYPE html>
             <div class="tb-tip" id="stage-tip"></div>
           </div>
           <div id="stage-body"></div>
+        </div>
+        <div class="card">
+          <div id="promo-body"></div>
         </div>
       </div>
       <div class="view" id="view-alert" style="display:none">
@@ -2193,6 +2320,42 @@ window.BOARD_DATA = __DATA__;
     box.innerHTML = h;
   }
 
+  function deltaBadge(cur, prev) {
+    if (cur === null || cur === undefined) return '<span class="d-none">-</span>';
+    var s = (typeof cur === "number" ? cur.toFixed(1) : cur) + "%";
+    if (prev === null || prev === undefined) return '<span class="d-flat">' + s + '</span>';
+    var diff = Math.round((cur - prev) * 10) / 10;
+    var cls = diff > 0 ? "d-up" : (diff < 0 ? "d-dn" : "d-flat");
+    var arrow = diff > 0 ? "↑" : (diff < 0 ? "↓" : "→");
+    var t = ' title="昨日 ' + (typeof prev === "number" ? prev.toFixed(1) : prev) + '%"';
+    return '<span class="' + cls + '"' + t + '>' + s + arrow + '</span>';
+  }
+
+  function renderPromotion() {
+    var box = document.getElementById("promo-body");
+    if (!box) return;
+    var rows = data.promotion || [];
+    if (!rows.length) { box.innerHTML = '<div class="empty">数据不足（需至少 2 个交易日）</div>'; return; }
+    var html = '<div class="toolbar"><div class="tb-title">板块晋级率 <span class="cnt">一进二 / 二进三 / 三进四 · 同比昨日（↑升 ↓降）</span></div></div>';
+    html += '<table><thead><tr><th>板块</th><th class="num">涨停</th><th class="num">首板</th><th class="num">首板率</th>' +
+      '<th class="num">一进二</th><th class="num">二进三</th><th class="num">三进四</th></tr></thead><tbody>';
+    rows.slice(0, 14).forEach(function (r) {
+      html += '<tr>' +
+        '<td><b>' + esc(r.ind) + '</b></td>' +
+        '<td class="num">' + r.n + '</td>' +
+        '<td class="num">' + r.fb + '</td>' +
+        '<td class="num">' + deltaBadge(r.fb_rate, r.fb_prev) + '</td>' +
+        '<td class="num">' + (r.j12_rate !== null ? deltaBadge(r.j12_rate, r.j12_prev) : '<span class="d-none">-</span>') + '<span class="d-base">' + r.j12 + '/' + '</span></td>' +
+        '<td class="num">' + (r.j23_rate !== null ? deltaBadge(r.j23_rate, r.j23_prev) : '<span class="d-none">-</span>') + '</td>' +
+        '<td class="num">' + (r.j34_rate !== null ? deltaBadge(r.j34_rate, r.j34_prev) : '<span class="d-none">-</span>') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div class="cycle-hint">首板率 = 该板块首板数/涨停数；一进二 = 昨日首板今日晋级2板的比例（按代码匹配，归属今日板块）；↑红 = 较昨日走强</div>';
+    box.innerHTML = html;
+    if (window.gsap) gsap.from(box.querySelectorAll("tbody tr"), { autoAlpha: 0, y: 8, duration: 0.3, stagger: 0.02, ease: "power2.out", clearProps: "all" });
+  }
+
   function renderStage() {
     if (curView !== "stage") return;
     var box = document.getElementById("stage-body");
@@ -2432,6 +2595,22 @@ window.BOARD_DATA = __DATA__;
     });
     return out;
   }
+  function escThenLink(s) {
+    var out = esc(s);
+    var map = data.newsMap || {};
+    var names = Object.keys(map).sort(function (a, b) { return b.length - a.length; });
+    names.forEach(function (n) {
+      if (out.indexOf(n) < 0) return;
+      var code = map[n];
+      var ex = code.charAt(0) === "6" ? "sh" : (code.charAt(0) === "4" || code.charAt(0) === "8" ? "bj" : "sz");
+      var url = "https://quote.eastmoney.com/" + ex + code + ".html";
+      out = out.split(n).join('<a class="co-link" href="' + url + '" target="_blank" rel="noopener" title="点击查看K线图/分时图">' + n + '</a>');
+    });
+    NEWS_KW.forEach(function (w) {
+      out = out.split(w).join('<em class="kw">' + w + '</em>');
+    });
+    return out;
+  }
   window.setNewsCat = function (c) { newsCat = c; renderNews(); };
 
   function renderNews() {
@@ -2460,12 +2639,12 @@ window.BOARD_DATA = __DATA__;
       var cls = n.sentiment === "利好" ? "pos" : (n.sentiment === "利空" ? "neg" : "neu");
       var tagTxt = n.sentiment === "中性" ? "中性观察" : n.sentiment;
       var why = n.reason ? ("关键词命中：" + esc(n.reason)) : "无明确多空关键词，判定为中性";
-      var title = n.link ? '<a href="' + esc(n.link) + '" target="_blank" rel="noopener" class="tl-title">' + hlKw(n.title) + '</a>'
-                         : '<span class="tl-title">' + hlKw(n.title) + '</span>';
+      var title = n.link ? '<a href="' + esc(n.link) + '" target="_blank" rel="noopener" class="tl-title">' + escThenLink(n.title) + '</a>'
+                         : '<span class="tl-title">' + escThenLink(n.title) + '</span>';
       html += '<div class="tl-item">' +
         '<div class="tl-time">' + esc(String(n.pub_time).slice(5, 16)) + '<span class="tl-src">' + esc(n.source || "") + '</span></div>' +
         title +
-        (n.summary ? '<div class="tl-sum">' + hlKw(String(n.summary).slice(0, 160)) + '</div>' : '') +
+        (n.summary ? '<div class="tl-sum">' + escThenLink(String(n.summary).slice(0, 160)) + '</div>' : '') +
         '<div class="ana ' + cls + '">' +
           '<span class="ana-tag">' + tagTxt + '</span>' +
           '<span class="ana-why">' + why + '</span>' +
@@ -2484,6 +2663,7 @@ window.BOARD_DATA = __DATA__;
   function renderAll() {
     renderNavModules();
     renderStage();
+    renderPromotion();
     renderAlert();
     renderCycleView();
     renderThemeView();
