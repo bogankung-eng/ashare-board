@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sqlite3
+from datetime import datetime
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE, "data", "board.db")
@@ -1067,6 +1068,247 @@ def load_news(conn, limit=200):
              "sentiment": r[6], "reason": r[7] or ""} for r in rows]
 
 
+def fetch_quotes(codes):
+    """批量行情：code -> {name, pct}。腾讯单请求 → 新浪备源 → 当日缓存兜底。
+    腾讯对同 IP 高频返回空 body（HTTP 200），故合并为一次请求并落缓存。"""
+    out = {}
+    if not codes:
+        return out
+
+    def pref(c):
+        c = str(c)
+        if c[:2] in ("sh", "sz", "bj"):
+            return c
+        if c and c[0] == "6":
+            return "sh" + c
+        if c and c[0] in ("0", "3"):
+            return "sz" + c
+        return "bj" + c if c and c[0] in ("4", "8", "9") else "sz" + c
+
+    def save_cache():
+        try:
+            cpath = os.path.join(BASE, "data", "quotes_cache.json")
+            if out:
+                out["_date"] = datetime.now().strftime("%Y%m%d")
+                json.dump(out, open(cpath, "w", encoding="utf-8"), ensure_ascii=False)
+        except Exception:
+            pass
+
+    def load_cache():
+        try:
+            cpath = os.path.join(BASE, "data", "quotes_cache.json")
+            if os.path.exists(cpath):
+                cached = json.load(open(cpath, encoding="utf-8"))
+                if cached.get("_date") == datetime.now().strftime("%Y%m%d"):
+                    cached.pop("_date", None)
+                    out.update(cached)
+        except Exception:
+            pass
+
+    try:
+        import urllib.request
+        pcs = sorted({pref(c) for c in codes})
+        # ① 腾讯：一次请求全部
+        try:
+            url = "https://qt.gtimg.cn/q=" + ",".join(pcs)
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            raw = urllib.request.urlopen(req, timeout=15).read().decode("gbk", "ignore")
+            for line in raw.split(";"):
+                if '="' not in line or "~" not in line:
+                    continue
+                key, body = line.split('="', 1)
+                f = body.rstrip('"\n').split("~")
+                if key.startswith(("v_sh", "v_sz", "v_bj")) and len(f) > 32 and f[1]:
+                    try:
+                        pct = float(f[32])
+                    except Exception:
+                        pct = None
+                    out[key[6:]] = {"name": f[1], "pct": pct}
+        except Exception:
+            pass
+        # ② 新浪备源（补腾讯缺失）
+        if len(out) < len(pcs):
+            try:
+                url2 = "https://hq.sinajs.cn/list=" + ",".join(pcs)
+                req2 = urllib.request.Request(url2, headers={
+                    "User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn"})
+                raw2 = urllib.request.urlopen(req2, timeout=15).read().decode("gbk", "ignore")
+                for line in raw2.splitlines():
+                    if 'hq_str_' not in line or '="' not in line:
+                        continue
+                    key, body = line.split('="', 1)
+                    f = body.rstrip('";').split(",")
+                    code = key.replace("var hq_str_", "")
+                    if len(f) > 3 and f[0]:
+                        try:
+                            price, prev = float(f[3]), float(f[2])
+                            pct = round((price / prev - 1) * 100, 2) if prev > 0 else None
+                        except Exception:
+                            pct = None
+                        out[code[2:]] = {"name": f[0], "pct": pct}
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if out:
+        save_cache()
+    else:
+        load_cache()
+    return out
+
+
+NAMEPLAY_STOP = {"股", "份", "集", "团"}
+
+
+def analyze_nameplay(days, dates, lookback=5):
+    """字辈挖掘：同一汉字被多只涨停股共享 → 市场共识字辈（华字辈/洋字辈等）。
+    活跃 = 今日≥3只；观察 = 今日2只；连燃 = 连续N日≥2只。只统计今日仍出现的字。"""
+    dd = dates[-lookback:]
+    if not dd:
+        return {"active": [], "watch": [], "days": []}
+    per_day = []
+    for d in dd:
+        m = {}
+        for r in days[d]["pools"]["zt"]:
+            nm = str(r.get("名称") or "")
+            lb = int(r.get("连板数") or 0)
+            for ch in {c for c in nm if "\u4e00" <= c <= "\u9fff" and c not in NAMEPLAY_STOP}:
+                m.setdefault(ch, {})[r.get("代码")] = (nm, lb)
+        per_day.append(m)
+    today = per_day[-1]
+    chars = {}
+    for ch in today.keys():
+        hist = [len(per_day[i].get(ch, {})) for i in range(len(per_day))]
+        streak = 0
+        for c in reversed(hist):
+            if c >= 2:
+                streak += 1
+            else:
+                break
+        t = today[ch]
+        chars[ch] = {"ch": ch, "today": len(t), "yesterday": hist[-2] if len(hist) > 1 else 0,
+                     "streak": streak, "hist": hist,
+                     "max_lb": max(v[1] for v in t.values()),
+                     "members": [{"code": c, "name": v[0], "lb": v[1]}
+                                 for c, v in sorted(t.items(), key=lambda kv: -kv[1][1])]}
+    act = sorted((v for v in chars.values() if v["today"] >= 3),
+                 key=lambda x: (-x["today"], -x["max_lb"], -x["streak"]))
+    wat = sorted((v for v in chars.values() if v["today"] == 2),
+                 key=lambda x: (-x["max_lb"], -x["streak"]))
+    return {"active": act, "watch": wat, "days": dd}
+
+
+def load_themelib_cfg():
+    fp = os.path.join(BASE, "themes_custom.json")
+    if os.path.exists(fp):
+        try:
+            return json.load(open(fp, encoding="utf-8")).get("groups", [])
+        except Exception:
+            pass
+    return []
+
+
+def load_focus_cfg():
+    fp = os.path.join(BASE, "focus.json")
+    if os.path.exists(fp):
+        try:
+            return json.load(open(fp, encoding="utf-8")).get("items", [])
+        except Exception:
+            pass
+    return []
+
+
+def gather_focus(conn, days, dates, name_map):
+    """市场聚焦候选：人工 focus.json + 自动（新股C/N前缀 + 资讯并购重组/复牌关键词）。"""
+    out, seen = [], set()
+
+    def add(name, code, tag, reason, src, dt):
+        if not name or name in seen:
+            return
+        seen.add(name)
+        out.append({"name": str(name), "code": code or "", "tag": tag,
+                    "reason": reason, "src": src,
+                    "date": dt or (dates[-1] if dates else "")})
+
+    for it in load_focus_cfg():
+        add(it.get("name"), it.get("code") or "", it.get("tag") or "聚焦",
+            it.get("reason") or "", "人工", it.get("date"))
+    # 自动：新股 C/N 前缀（近5日涨停池）
+    for d in dates[-5:]:
+        for r in days.get(d, {}).get("pools", {}).get("zt", []):
+            nm = str(r.get("名称") or "")
+            if len(nm) >= 2 and nm[0] in ("C", "N") and "\u4e00" <= nm[1] <= "\u9fff":
+                lb = int(r.get("连板数") or 0)
+                reason = f"近端次新（{nm[0]}前缀，上市初期无涨跌幅限制），情绪聚焦标的" + (f"，今日{lb}板" if lb else "")
+                add(nm, r.get("代码"), "新股", reason, "自动·新股", d)
+    # 自动：近7日资讯 并购/重组/复牌 → 匹配股票名
+    try:
+        import datetime as _dt
+        cutoff = (_dt.datetime.now() - _dt.timedelta(days=7)).strftime("%Y-%m-%d")
+        rows = conn.execute(
+            "SELECT pub_time, title, summary FROM news WHERE pub_time>=? "
+            "ORDER BY pub_time DESC LIMIT 400", (cutoff,)).fetchall()
+    except Exception:
+        rows = []
+    kw_tag = [("要约收购", "并购重组"), ("收购", "并购重组"), ("重组", "并购重组"),
+              ("借壳", "并购重组"), ("资产注入", "并购重组"), ("复牌", "复牌")]
+    names_sorted = sorted(name_map.keys(), key=len, reverse=True)
+    for pt, title, summary in rows:
+        for kw, tag in kw_tag:
+            if kw in str(title):
+                for n in names_sorted:
+                    if len(n) >= 3 and n in str(title):
+                        add(n, name_map.get(n, ""), tag, str(title)[:80], "自动·资讯", str(pt)[:10])
+                        break
+                break
+    return out[:10]
+
+
+def enrich_focus(cands, quotes, today_zt):
+    out = []
+    for it in cands:
+        code = it.get("code") or ""
+        q = quotes.get(code, {})
+        pct = q.get("pct")
+        zr = today_zt.get(code) if code else None
+        lb = int(zr.get("连板数") or 0) if zr else 0
+        if pct is None and zr:
+            try:
+                pct = float(zr.get("涨跌幅"))
+            except Exception:
+                pct = None
+        out.append({"name": it["name"], "code": code, "tag": it["tag"],
+                    "reason": it["reason"], "src": it["src"], "date": it["date"],
+                    "pct": pct, "lb": lb,
+                    "cur_name": q.get("name") or (zr or {}).get("名称") or it["name"]})
+    return out
+
+
+def enrich_themelib(groups, quotes, today_zt):
+    out = []
+    for g in groups:
+        subs, g_zt = [], 0
+        for sub in g.get("subs", []):
+            members = []
+            for code, nm in sub.get("codes", {}).items():
+                q = quotes.get(code, {})
+                zr = today_zt.get(code)
+                lb = int(zr.get("连板数") or 0) if zr else 0
+                pct = q.get("pct")
+                if pct is None and zr:
+                    try:
+                        pct = float(zr.get("涨跌幅"))
+                    except Exception:
+                        pct = None
+                members.append({"code": code, "name": nm, "pct": pct, "lb": lb})
+            members.sort(key=lambda m: (-(m["pct"] if m["pct"] is not None else -99), -m["lb"]))
+            zt_n = sum(1 for m in members if m["lb"])
+            g_zt += zt_n
+            subs.append({"name": sub["name"], "members": members, "zt": zt_n})
+        out.append({"name": g["name"], "type": g.get("type") or "mid", "zt": g_zt, "subs": subs})
+    return out
+
+
 def analyze_screener(conn, days, dates, trend, value):
     """选股器：短线/中线/长线三模式，多维评分
     短线=技术面40+情绪面30+资金面30（涨停池+潜龙）
@@ -1204,10 +1446,31 @@ def build(dates):
     news = load_news(conn)
     promotion = analyze_promotion(days, dates)
     news_map = build_name_map(conn, dates)
+    # 聚焦挖掘：字辈 + 市场聚焦 + 题材库（统一一次批量行情）
+    nameplay = analyze_nameplay(days, dates)
+    focus_cands = gather_focus(conn, days, dates, news_map)
+    pool_names = {}
+    for d in dates[-10:]:
+        for c, n in conn.execute("SELECT code, name FROM pool_daily WHERE date=?", (d,)):
+            if n:
+                pool_names.setdefault(str(n), str(c))
+    for it in focus_cands:
+        if not it["code"] and it["name"] in pool_names:
+            it["code"] = pool_names[it["name"]]
+    themelib_cfg = load_themelib_cfg()
+    qcodes = {it["code"] for it in focus_cands if it["code"]}
+    for g in themelib_cfg:
+        for sub in g.get("subs", []):
+            qcodes.update(sub.get("codes", {}).keys())
+    quotes = fetch_quotes(qcodes)
+    today_zt = {r.get("代码"): r for r in days[dates[-1]]["pools"]["zt"]} if dates else {}
+    focus = enrich_focus(focus_cands, quotes, today_zt)
+    themelib = enrich_themelib(themelib_cfg, quotes, today_zt)
     conn.close()
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
             "lowpos": lowpos, "screener": screener, "news": news,
-            "promotion": promotion, "newsMap": news_map}
+            "promotion": promotion, "newsMap": news_map,
+            "nameplay": nameplay, "focus": focus, "themelib": themelib}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -1420,6 +1683,48 @@ TEMPLATE = r"""<!DOCTYPE html>
   .d-base{font-size:10px;color:var(--ink3);margin-left:2px;}
   .co-link{color:var(--accent);font-weight:600;text-decoration:none;border-bottom:1px dashed var(--accent);}
   .co-link:hover{background:var(--accent-soft);}
+  .q-up{color:var(--up);font-weight:600;font-size:11px;}
+  .q-dn{color:var(--down);font-weight:600;font-size:11px;}
+  .q-flat{color:var(--ink3);font-size:11px;}
+  .q-na{color:var(--ink3);font-size:11px;}
+  .c-up{color:var(--up);}
+  .foc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;}
+  .foc-card{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;background:linear-gradient(180deg,var(--amberbg),var(--card) 60%);}
+  .foc-head{display:flex;align-items:center;gap:8px;font-size:15px;margin-bottom:6px;flex-wrap:wrap;}
+  .foc-tag{font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:1px 6px;}
+  .foc-lb{font-size:11px;color:var(--up);font-weight:700;}
+  .foc-reason{font-size:12.5px;color:var(--ink2);line-height:1.55;}
+  .foc-date{font-size:10.5px;color:var(--ink3);margin-top:6px;}
+  .np-row{display:grid;grid-template-columns:76px 168px 1fr;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);align-items:start;}
+  .np-row:last-child{border-bottom:none;}
+  .np-dim{opacity:.62;}
+  .np-char{font-size:17px;font-weight:800;color:var(--accent);}
+  .np-stats{font-size:11.5px;color:var(--ink2);line-height:1.8;}
+  .np-hot{color:var(--up);font-weight:700;}
+  .np-hist{color:var(--ink3);font-size:10.5px;letter-spacing:2px;}
+  .np-members{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:12px;background:var(--card);}
+  .chip-zt{border-color:rgba(192,57,43,.45);background:var(--upbg);}
+  .chip-lb{color:var(--up);font-size:10px;}
+  .np-watch-t{font-size:11px;color:var(--ink3);margin:10px 0 0;font-weight:600;}
+  .np-empty{font-size:12.5px;color:var(--ink3);padding:8px 0;}
+  .tlp-group{margin-bottom:14px;}
+  .tlp-group:last-child{margin-bottom:0;}
+  .tlp-head{font-size:14px;font-weight:700;margin-bottom:6px;display:flex;gap:8px;align-items:center;}
+  .tlp-type{font-size:10px;border-radius:4px;padding:1px 6px;background:var(--bluebg);color:var(--blue);}
+  .tlp-zt{font-size:10.5px;color:var(--up);font-weight:700;}
+  .tlp-sub{display:flex;gap:10px;padding:7px 0;border-top:1px dashed var(--line);align-items:flex-start;}
+  .tlp-subname{min-width:118px;font-size:12.5px;font-weight:600;color:var(--ink2);}
+  .tlp-subzt{color:var(--up);font-size:10.5px;margin-left:4px;}
+  .tlp-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  @media (max-width:720px){
+    .np-row{grid-template-columns:64px 1fr;grid-template-areas:"ch st" "mem mem";}
+    .np-char{grid-area:ch;}
+    .np-stats{grid-area:st;}
+    .np-members{grid-area:mem;}
+    .tlp-sub{flex-direction:column;gap:6px;}
+    .tlp-subname{min-width:0;}
+  }
   .news-cats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
   .cat-btn{border:1px solid var(--border);background:var(--panel-2);border-radius:999px;padding:4px 14px;font-size:12.5px;cursor:pointer;color:var(--ink2);}
   .cat-btn:hover{border-color:var(--accent);color:var(--accent);}
@@ -1618,6 +1923,29 @@ TEMPLATE = r"""<!DOCTYPE html>
             <div class="tb-tip">按发布时间倒序 · 关键词红字高亮</div>
           </div>
           <div id="news-body"></div>
+        </div>
+      </div>
+      <div class="view" id="view-focus" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">市场聚焦 <span class="cnt" id="foc-cnt"></span></div>
+            <div class="tb-tip">新股 / 并购重组 / 复牌等情绪共振标的 · 点名字看K线分时</div>
+          </div>
+          <div id="focus-body"></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">字辈挖掘 <span class="cnt" id="np-cnt"></span></div>
+            <div class="tb-tip">同一汉字被≥3只涨停共享 = 共识字辈（华字辈/洋字辈）· 市场高度共性自动识别</div>
+          </div>
+          <div id="np-body"></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">重点题材库 <span class="cnt" id="tl-cnt"></span></div>
+            <div class="tb-tip">AI硬件·战略板块（中长线） / AI应用·传媒·消费（短线）</div>
+          </div>
+          <div id="tl-body"></div>
         </div>
       </div>
       <div class="view" id="view-screener" style="display:none">
@@ -2292,7 +2620,7 @@ window.BOARD_DATA = __DATA__;
     document.querySelectorAll(".mod-btn").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-mod") === name);
     });
-    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯" };
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
     renderAll();
@@ -2309,6 +2637,7 @@ window.BOARD_DATA = __DATA__;
       { k: "theme",  t: "主线龙头", i: "★" },
       { k: "screener", t: "选股器", i: "◎" },
       { k: "news", t: "公告资讯", i: "❐" },
+      { k: "focus", t: "聚焦挖掘", i: "◉" },
     ];
     var h = "";
     items.forEach(function (it) {
@@ -2660,6 +2989,79 @@ window.BOARD_DATA = __DATA__;
     }
   }
 
+  function pctSpan(p) {
+    if (p === null || p === undefined) return '<span class="q-na">--</span>';
+    var s = (p > 0 ? "+" : "") + p.toFixed(2) + "%";
+    return '<span class="' + (p > 0 ? "q-up" : (p < 0 ? "q-dn" : "q-flat")) + '">' + s + '</span>';
+  }
+
+  function stockLink(code, name) {
+    if (!code) return '<a class="co-link" target="_blank" rel="noopener" href="https://quote.eastmoney.com/search.html?keyword=' + encodeURIComponent(name) + '">' + esc(name) + '</a>';
+    var ex = code[0] === "6" ? "sh" : ((code[0] === "8" || code[0] === "4" || code[0] === "9") ? "bj" : "sz");
+    return '<a class="co-link" target="_blank" rel="noopener" href="https://quote.eastmoney.com/' + ex + code + '.html">' + esc(name) + '</a>';
+  }
+
+  function renderFocus() {
+    /* ---- 市场聚焦 ---- */
+    var foc = data.focus || [], fb = document.getElementById("focus-body");
+    document.getElementById("foc-cnt").textContent = foc.length + "只";
+    var fh = '<div class="foc-grid">';
+    foc.forEach(function (f) {
+      fh += '<div class="foc-card">' +
+        '<div class="foc-head">' + stockLink(f.code, f.cur_name || f.name) +
+        '<span class="foc-tag">' + esc(f.tag) + '</span>' +
+        (f.lb ? '<span class="foc-lb">' + f.lb + '板</span>' : '') +
+        pctSpan(f.pct) + '</div>' +
+        '<div class="foc-reason">' + escThenLink(f.reason) + '</div>' +
+        '<div class="foc-date">' + esc(String(f.date || "").slice(0, 10)) + ' · ' + esc(f.src) + '</div></div>';
+    });
+    fh += '</div>';
+    fb.innerHTML = fh;
+    /* ---- 字辈挖掘 ---- */
+    var np = data.nameplay || { active: [], watch: [] };
+    function npRow(c, dim) {
+      var chips = "";
+      (c.members || []).forEach(function (m) {
+        chips += '<span class="chip' + (m.lb ? " chip-zt" : "") + '">' + stockLink(m.code, m.name) +
+          (m.lb > 1 ? '<b class="chip-lb">' + m.lb + '板</b>' : '') + '</span>';
+      });
+      return '<div class="np-row' + (dim ? " np-dim" : "") + '">' +
+        '<div class="np-char">' + esc(c.ch) + '字辈</div>' +
+        '<div class="np-stats">今日涨停 <b class="c-up">' + c.today + '</b> 只 · 昨日 ' + c.yesterday +
+        (c.streak >= 2 ? ' · <span class="np-hot">连燃' + c.streak + '日</span>' : '') +
+        ' · 最高 ' + c.max_lb + ' 板' +
+        '<br><span class="np-hist">' + (c.hist || []).join(" ") + '</span></div>' +
+        '<div class="np-members">' + chips + '</div></div>';
+    }
+    var nh = "";
+    np.active.forEach(function (c) { nh += npRow(c, false); });
+    if (!np.active.length) nh = '<div class="np-empty">今日无 ≥3 只共识字辈 · 情绪分散无文字共性</div>';
+    if (np.watch && np.watch.length) {
+      nh += '<div class="np-watch-t">观察（今日 2 只，尚未成气候）</div>';
+      np.watch.forEach(function (c) { nh += npRow(c, true); });
+    }
+    document.getElementById("np-body").innerHTML = nh;
+    document.getElementById("np-cnt").textContent = np.active.length + "个活跃";
+    /* ---- 重点题材库 ---- */
+    var tl = data.themelib || [], th = "";
+    tl.forEach(function (g) {
+      th += '<div class="tlp-group"><div class="tlp-head">' + esc(g.name) +
+        '<span class="tlp-type">' + (g.type === "short" ? "短线" : "中长线") + '</span>' +
+        (g.zt ? '<span class="tlp-zt">涨停 ' + g.zt + '</span>' : '') + '</div>';
+      (g.subs || []).forEach(function (s) {
+        th += '<div class="tlp-sub"><div class="tlp-subname">' + esc(s.name) +
+          (s.zt ? '<b class="tlp-subzt">' + s.zt + '板</b>' : '') + '</div><div class="tlp-chips">';
+        (s.members || []).forEach(function (m) {
+          th += '<span class="chip' + (m.lb ? " chip-zt" : "") + '">' + stockLink(m.code, m.name) + pctSpan(m.pct) + '</span>';
+        });
+        th += '</div></div>';
+      });
+      th += '</div>';
+    });
+    document.getElementById("tl-body").innerHTML = th;
+    document.getElementById("tl-cnt").textContent = tl.length + "大方向";
+  }
+
   function renderAll() {
     renderNavModules();
     renderStage();
@@ -2669,6 +3071,7 @@ window.BOARD_DATA = __DATA__;
     renderThemeView();
     renderScreener();
     renderNews();
+    renderFocus();
     renderSidePanel();
     renderDatebar();
   }
