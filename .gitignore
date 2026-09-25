@@ -8,8 +8,11 @@ __pycache__/
 # 临时校验文件
 _check.js
 
-# 运行日志（每日自动生成，不入库）
-_daily_run.log
+# 运行日志与中间产物（每日自动生成，不入库）
+_daily_run*.log
+_brief_*.txt
+_daily_*.txt
+_probe.txt
 
 # 系统
 .DS_Store
