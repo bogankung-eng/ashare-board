@@ -44,17 +44,25 @@ def get_token():
     return None
 
 
-def push_with_retry(url, branch="main", attempts=15, interval=60, timeout=60):
+def push_with_retry(branch="main", attempts=15, interval=60, timeout=60):
     """断网友好：每次 push 强制 timeout（避免无限挂起），失败后循环重试。
 
     根因修复：原 subprocess.run 无 timeout，github 不可达时 git 挂死、
     python 进程也随之永久阻塞在 subprocess 管道上（连续多日人工救场）。
-    timeout 到期后子进程会被 kill，python 继续进入下一轮重试。"""
+    timeout 到期后子进程会被 kill，python 继续进入下一轮重试。
+
+    2026-09-26 二次修复：不再把 token 硬嵌 URL——token 失效时 GitHub 返回 401，
+    git 会回退询问凭证助手，GCM 弹出「Connect to GitHub」登录窗打扰桌面用户。
+    改为走 origin + GCM 凭证助手（gho_ OAuth 自动续期），并设
+    GCM_INTERACTIVE=never / GIT_TERMINAL_PROMPT=0，凭证缺失时快速失败、绝不弹窗。"""
+    env = dict(os.environ)
+    env["GCM_INTERACTIVE"] = "never"
+    env["GIT_TERMINAL_PROMPT"] = "0"
     for i in range(1, attempts + 1):
         try:
-            r = subprocess.run(["git", "push", url, branch], cwd=BASE,
+            r = subprocess.run(["git", "push", "origin", branch], cwd=BASE,
                                capture_output=True, text=True, encoding="utf-8",
-                               errors="replace", timeout=timeout)
+                               errors="replace", timeout=timeout, env=env)
             out = (r.stdout or "").strip()
             err = (r.stderr or "").strip()
             if out:
@@ -87,14 +95,10 @@ def main():
     shutil.copy(os.path.join(BASE, "board.html"), os.path.join(BASE, "public", "index.html"))
 
     print("== 4/4 推送 GitHub（CF 自动重新部署）==")
-    token = get_token()
-    if not token:
-        print("!!! 未找到 GitHub token（~/.git-credentials / CREDENTIALS.md）"); return 1
-    url = REPO_URL.replace("https://", f"https://{token}@")
     if run(["git", "add", "-A"]) != 0:
         print("!!! git add 失败"); return 1
     run(["git", "commit", "-m", f"auto: 每日看板更新 {__import__('datetime').date.today()}"])
-    push_rc = push_with_retry(url)
+    push_rc = push_with_retry()
     if push_rc == 0:
         print("== 完成：线上看板 https://ashare-board.pages.dev/ 已更新 ==")
     else:
