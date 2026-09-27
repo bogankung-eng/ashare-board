@@ -401,12 +401,20 @@ def _attribute_reason(r, ind_cnt):
 
 
 def analyze_themes(pools, sent):
-    """题材聚类 + 阶段判断 + 高低切 v0（基于行业聚合）"""
+    """题材聚类 + 阶段判断 + 高低切 v0
+    P7 升级：优先真实涨停原因（同花顺揭秘，按首标签聚类）；覆盖率 <50% 回退行业聚合。"""
     zt = pools["zt"]
+    has_reason = [r for r in zt if r.get("涨停原因")]
+    use_reason = len(zt) > 0 and len(has_reason) / len(zt) >= 0.5
+
+    def _key(r):
+        if use_reason and r.get("涨停原因"):
+            return str(r["涨停原因"]).split("+")[0].strip() or (r.get("所属行业") or "其他")
+        return r.get("所属行业") or "其他"
+
     groups = {}
     for r in zt:
-        ind = r.get("所属行业") or "其他"
-        groups.setdefault(ind, []).append(r)
+        groups.setdefault(_key(r), []).append(r)
     themes = []
     for name, arr in groups.items():
         lbs = [int(x.get("连板数") or 0) for x in arr]
@@ -442,6 +450,7 @@ def analyze_themes(pools, sent):
                        "lb": int(leader.get("连板数") or 0)},
             "stage": stage, "stage_cls": cls,
             "hl": hl, "hl_cls": hl_cls,
+            "src": "reason" if use_reason else "industry",
         })
     themes.sort(key=lambda t: (t["max_lb"], t["count"]), reverse=True)
 
@@ -517,12 +526,37 @@ def analyze_ext(ext, pools):
             else:
                 db.append(r)
         avg = sum(_f(r, "涨跌幅") for r in prev) / len(prev) if prev else 0
+        # P7: 按昨日连板数分组反馈矩阵（借鉴 Vibe-Astock feedback_matrix）
+        grp = {}
+        for r in prev:
+            lb = int(_f(r, "昨日连板数"))
+            k = "1" if lb <= 1 else ("2" if lb == 2 else "3+")
+            g = grp.setdefault(k, {"base": 0, "jn": 0, "red": 0, "pct": 0.0})
+            g["base"] += 1
+            px, ztpx = _f(r, "最新价"), _f(r, "涨停价")
+            if ztpx > 0 and abs(px - ztpx) / ztpx < 0.001:
+                g["jn"] += 1
+            if _f(r, "涨跌幅") > 0:
+                g["red"] += 1
+            g["pct"] += _f(r, "涨跌幅")
+        matrix = []
+        for k, label in (("1", "昨日首板"), ("2", "昨日2板"), ("3+", "昨日3板+")):
+            g = grp.get(k)
+            if not g:
+                continue
+            matrix.append({
+                "lb": label, "base": g["base"], "jn": g["jn"], "red": g["red"],
+                "jn_rate": round(g["jn"] / g["base"] * 100, 1),
+                "red_rate": round(g["red"] / g["base"] * 100, 1),
+                "avg_pct": round(g["pct"] / g["base"], 2),
+            })
         out["prev"] = {
             "total": len(prev), "jn": len(jn), "db": len(db),
             "jn_rate": round(len(jn) / len(prev) * 100, 1) if prev else 0,
             "avg_pct": round(avg, 2),
             "jn_list": sorted(jn, key=lambda x: -_f(x, "涨跌幅"))[:12],
             "db_list": sorted(db, key=lambda x: -_f(x, "涨跌幅"))[:12],
+            "matrix": matrix,
         }
     return out
 
@@ -1423,6 +1457,13 @@ def build(dates):
     days = {}
     for d in dates:
         pools, breadth = load_day(conn, d)
+        # P7: 注入真实涨停原因（同花顺揭秘；缺数个股保留行业归因回退）
+        ztr = {str(c): rs for c, rs in conn.execute(
+            "SELECT code, reason FROM zt_reasons WHERE date=? AND reason!=''", (d,))}
+        for r in pools["zt"]:
+            rs = ztr.get(str(r.get("代码") or ""))
+            if rs:
+                r["涨停原因"] = rs
         sent = sentiment(pools, breadth)
         analyze_stocks(pools, sent)
         themes, hl_conclusion = analyze_themes(pools, sent)
@@ -2238,6 +2279,12 @@ window.BOARD_DATA = __DATA__;
         '<div class="prev-stat"><div class="v">' + prev.db + '</div><div class="l">断板</div></div>' +
         '<div class="prev-stat"><div class="v ' + (prev.avg_pct >= 0 ? "money-in" : "money-out") + '">' + prev.avg_pct + '%</div><div class="l">昨日涨停今均涨</div></div>' +
         '</div>';
+      if (prev.matrix && prev.matrix.length) {
+        html += '<div class="prev-stats" style="margin-top:8px;">' +
+          prev.matrix.map(function (m) {
+            return '<div class="prev-stat"><div class="v ' + (m.jn_rate >= 30 ? "money-in" : (m.avg_pct < 0 ? "money-out" : "")) + '">' + m.jn_rate + '%</div><div class="l">' + m.lb + ' ' + m.jn + '/' + m.base + ' · 翻红' + m.red_rate + '% · 均' + (m.avg_pct >= 0 ? "+" : "") + m.avg_pct + '%</div></div>';
+          }).join('') + '</div>';
+      }
       html += '<div class="two-col">';
       html += '<div class="mini-list"><div style="font-weight:600;font-size:12.5px;margin-bottom:4px;">晋级名单（今仍涨停）</div>';
       prev.jn_list.forEach(function (r) {

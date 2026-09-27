@@ -110,6 +110,12 @@ def get_conn():
         "date TEXT, code TEXT, seat TEXT, buy_amt REAL, sell_amt REAL, net REAL, "
         "reason TEXT, PRIMARY KEY(date, code, seat, reason))"
     )
+    # P7 真实涨停原因（同花顺涨停揭秘，免费公开接口）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS zt_reasons("
+        "date TEXT, code TEXT, name TEXT, reason TEXT, first_time TEXT, "
+        "open_num INT, limit_up_type TEXT, collected_at TEXT, PRIMARY KEY(date, code))"
+    )
     # 公告资讯（新浪快讯/财经早餐 + 人工补充）
     conn.execute(
         "CREATE TABLE IF NOT EXISTS news("
@@ -391,6 +397,75 @@ def fetch_prev_zt(conn, date_str, now):
     print(f"[OK] 昨日涨停跟踪 {len(rows)} 只")
 
 
+THS_LIMIT_UP = "https://data.10jqka.com.cn/dataapi/limit_up/limit_up_pool"
+
+
+def fetch_zt_reasons(conn, date_str, now):
+    """P7: 真实涨停原因 + 首次封板时间（同花顺涨停揭秘，免费公开接口）。
+    借鉴 Vibe-Astock historical_sources：分页拉取，逐行核对封板时间戳落在目标日
+    （请求参数不是日期证据，防源站错场）；整体失败降级不阻塞主流程（看板回退行业归因）。
+    不含北交所（源站 filter=HS,GEM2STAR）。"""
+    import requests
+    try:
+        day = datetime.strptime(date_str, "%Y%m%d").date()
+    except ValueError:
+        return
+    seen = {}
+    try:
+        for page in range(1, 21):
+            r = requests.get(THS_LIMIT_UP, params={
+                "page": page, "limit": 200,
+                "field": "199112,10,9001,330323,330324,330325,9002,330329,133971,133970,1968584,3475914,9003,9004",
+                "filter": "HS,GEM2STAR", "order_field": "330324", "order_type": "0",
+                "date": date_str,
+            }, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
+            r.raise_for_status()
+            env = r.json()
+            if env.get("status_code") != 0:
+                raise ValueError("源站未成功返回涨停揭秘")
+            data = env.get("data") or {}
+            rows = data.get("info") or []
+            total = int((data.get("page") or {}).get("total") or 0)
+            for row in rows:
+                code = str(row.get("code", ""))
+                if not code or code in seen:
+                    raise ValueError("重复或无效代码，分页不完整")
+                # 封板时间戳逐行核对目标日（first_limit_up_time 为字符串秒级时间戳）
+                try:
+                    stamp_dt = datetime.fromtimestamp(float(row["first_limit_up_time"]))
+                except (KeyError, TypeError, ValueError):
+                    raise ValueError(f"{code}缺少有效封板时间，无法核对资料日")
+                if stamp_dt.date() != day:
+                    raise ValueError("源站返回其他交易日，未使用")
+                reason = str(row.get("reason_type") or "").strip()
+                seen[code] = {
+                    "name": str(row.get("name") or ""),
+                    "reason": "" if reason in ("-", "暂无") else reason,
+                    "first_time": stamp_dt.strftime("%H:%M:%S"),
+                    "open_num": row.get("open_num"),
+                    "limit_up_type": str(row.get("limit_up_type") or ""),
+                }
+            if len(seen) >= total or not rows:
+                break
+            time.sleep(0.3)
+    except Exception as e:  # noqa: BLE001
+        print(f"[跳过] 涨停原因获取失败（看板回退行业归因）: {type(e).__name__}: {str(e)[:80]}")
+        return
+    if not seen:
+        print("[跳过] 涨停揭秘无记录")
+        return
+    conn.executemany(
+        "INSERT OR REPLACE INTO zt_reasons(date, code, name, reason, first_time, open_num, limit_up_type, collected_at)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        [(date_str, code, v["name"], v["reason"], v["first_time"],
+          _jsonable(v["open_num"]), v["limit_up_type"], now)
+         for code, v in seen.items()],
+    )
+    conn.commit()
+    cov = sum(1 for v in seen.values() if v["reason"])
+    print(f"[OK] 涨停原因 {cov}/{len(seen)} 条（同花顺揭秘）")
+
+
 def fetch_idx_daily(conn, now):
     """P4: 5 大指数日线（新浪源，增量更新近 300 日）"""
     for code, name in IDX.items():
@@ -655,10 +730,11 @@ def main():
 
     # 3) 快照停用：board.db 为唯一数据源，不再生成 snapshot JSON（冗余，避免本地文件堆积）
 
-    # 4) P3 扩展数据：龙虎榜 / 板块资金流 / 昨日涨停跟踪
+    # 4) P3 扩展数据：龙虎榜 / 板块资金流 / 昨日涨停跟踪 / P7 涨停原因
     fetch_lhb(conn, date_str, now)
     fetch_fund_flow(conn, date_str, now)
     fetch_prev_zt(conn, date_str, now)
+    fetch_zt_reasons(conn, date_str, now)
 
     # 5) P6-A 席位明细（依赖龙虎榜已采集）
     fetch_seats(conn, date_str, now)
