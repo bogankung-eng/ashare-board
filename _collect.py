@@ -116,6 +116,12 @@ def get_conn():
         "date TEXT, code TEXT, name TEXT, reason TEXT, first_time TEXT, "
         "open_num INT, limit_up_type TEXT, collected_at TEXT, PRIMARY KEY(date, code))"
     )
+    # P8 解禁日历（东财数据中心，前瞻事件，每次采集覆盖刷新窗口）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS unlock_cal("
+        "code TEXT, name TEXT, unlock_date TEXT, shares REAL, mv REAL, ratio REAL, "
+        "share_type TEXT, collected_at TEXT, PRIMARY KEY(unlock_date, code))"
+    )
     # 公告资讯（新浪快讯/财经早餐 + 人工补充）
     conn.execute(
         "CREATE TABLE IF NOT EXISTS news("
@@ -466,6 +472,55 @@ def fetch_zt_reasons(conn, date_str, now):
     print(f"[OK] 涨停原因 {cov}/{len(seen)} 条（同花顺揭秘）")
 
 
+EM_DC = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+
+
+def fetch_unlock(conn, date_str, now):
+    """P8: 解禁日历（东财数据中心 RPT_LIFT_STAGE，免费公开接口）。
+    窗口=今天起未来 30 个日历日（前瞻事件，与采集日无关的覆盖式快照）；
+    shares=本次解禁股数(万股)，mv=解禁市值(万元)，ratio=占总股本(%)。
+    失败明确报错不静默（解禁是前瞻风险提示，缺失≠无解禁）。"""
+    import requests
+    from datetime import timedelta
+    start = datetime.strptime(date_str, "%Y%m%d").date()
+    end = start + timedelta(days=30)
+    try:
+        r = requests.get(EM_DC, params={
+            "reportName": "RPT_LIFT_STAGE", "columns": "ALL",
+            "pageSize": 500, "pageNumber": 1,
+            "sortColumns": "FREE_DATE", "sortTypes": "1",
+            "source": "WEB", "client": "WEB",
+            "filter": f"(FREE_DATE>='{start.isoformat()}')(FREE_DATE<='{end.isoformat()}')",
+        }, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        r.raise_for_status()
+        env = r.json()
+        if not env.get("success"):
+            raise ValueError("数据中心返回 success=false")
+        rows = ((env.get("result") or {}).get("data")) or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[失败] 解禁日历获取失败: {type(e).__name__}: {str(e)[:80]}")
+        return
+    conn.execute("DELETE FROM unlock_cal")  # 覆盖式快照
+    n = 0
+    for row in rows:
+        code = str(row.get("SECURITY_CODE") or "")
+        udate = str(row.get("FREE_DATE") or "")[:10]
+        shares, mv = row.get("FREE_SHARES"), row.get("LIFT_MARKET_CAP")
+        ratio = row.get("TOTAL_RATIO")
+        if not code or not udate:
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO unlock_cal(code, name, unlock_date, shares, mv, ratio, share_type, collected_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (code, str(row.get("SECURITY_NAME_ABBR") or ""), udate,
+             _jsonable(shares), _jsonable(mv),
+             round(ratio * 100, 2) if isinstance(ratio, (int, float)) else None,
+             str(row.get("FREE_SHARES_TYPE") or ""), now))
+        n += 1
+    conn.commit()
+    print(f"[OK] 解禁日历 {n} 条（未来30日，东财）")
+
+
 def fetch_idx_daily(conn, now):
     """P4: 5 大指数日线（新浪源，增量更新近 300 日）"""
     for code, name in IDX.items():
@@ -730,11 +785,12 @@ def main():
 
     # 3) 快照停用：board.db 为唯一数据源，不再生成 snapshot JSON（冗余，避免本地文件堆积）
 
-    # 4) P3 扩展数据：龙虎榜 / 板块资金流 / 昨日涨停跟踪 / P7 涨停原因
+    # 4) P3 扩展数据：龙虎榜 / 板块资金流 / 昨日涨停跟踪 / P7 涨停原因 / P8 解禁日历
     fetch_lhb(conn, date_str, now)
     fetch_fund_flow(conn, date_str, now)
     fetch_prev_zt(conn, date_str, now)
     fetch_zt_reasons(conn, date_str, now)
+    fetch_unlock(conn, date_str, now)
 
     # 5) P6-A 席位明细（依赖龙虎榜已采集）
     fetch_seats(conn, date_str, now)

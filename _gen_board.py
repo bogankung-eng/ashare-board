@@ -368,7 +368,8 @@ def analyze_stocks(pools, sent=None):
             "strat": strat, "risk": risk,
         }
         ind = r.get("所属行业") or "其他"
-        r["_reason"] = f"{ind}·{ind_count[ind]}家"
+        # P7: 优先真实涨停原因（同花顺揭秘），回退"行业·家数"
+        r["_reason"] = str(r["涨停原因"]) if r.get("涨停原因") else f"{ind}·{ind_count[ind]}家"
         r["_attr"] = _attribute_reason(r, ind_count[ind])
 
 
@@ -1452,6 +1453,31 @@ def analyze_screener(conn, days, dates, trend, value):
     return {"short": short[:20], "mid": mid[:20], "long": long_[:20]}
 
 
+def load_unlock(conn, base_date):
+    """P8: 未来 30 日解禁日历（相对看板最新交易日，覆盖式快照）"""
+    from datetime import datetime as _dt
+    base = _dt.strptime(base_date, "%Y%m%d").date()
+    rows = conn.execute(
+        "SELECT code, name, unlock_date, shares, mv, ratio, share_type FROM unlock_cal "
+        "WHERE unlock_date >= ? ORDER BY unlock_date", (base.isoformat(),)).fetchall()
+    stocks = [{"代码": c, "名称": n, "日期": u, "mv": round((m or 0) / 10000, 1),
+               "ratio": rt, "类型": st}
+              for c, n, u, s, m, rt, st in rows if m]
+    stocks.sort(key=lambda x: -x["mv"])
+    byday = {}
+    for c, n, u, s, m, rt, st in rows:
+        if not u:
+            continue
+        d = byday.setdefault(u, {"n": 0, "mv": 0.0})
+        d["n"] += 1
+        d["mv"] += (m or 0)
+    days = sorted(({"date": u, "n": v["n"], "mv": round(v["mv"] / 10000, 1)}
+                   for u, v in byday.items()), key=lambda x: x["date"])
+    total_mv = round(sum((m or 0) for _, _, _, _, m, _, _ in rows) / 10000, 1)
+    return {"total": len(rows), "total_mv": total_mv, "days": days,
+            "stocks": stocks[:12]}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -1487,6 +1513,7 @@ def build(dates):
     news = load_news(conn)
     promotion = analyze_promotion(days, dates)
     news_map = build_name_map(conn, dates)
+    unlock = load_unlock(conn, dates[-1]) if dates else {"total": 0, "total_mv": 0, "days": [], "stocks": []}
     # 聚焦挖掘：字辈 + 市场聚焦 + 题材库（统一一次批量行情）
     nameplay = analyze_nameplay(days, dates)
     focus_cands = gather_focus(conn, days, dates, news_map)
@@ -1511,7 +1538,8 @@ def build(dates):
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
             "lowpos": lowpos, "screener": screener, "news": news,
             "promotion": promotion, "newsMap": news_map,
-            "nameplay": nameplay, "focus": focus, "themelib": themelib}
+            "nameplay": nameplay, "focus": focus, "themelib": themelib,
+            "unlock": unlock}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -1934,6 +1962,16 @@ TEMPLATE = r"""<!DOCTYPE html>
         </div>
         <div class="card">
           <div id="promo-body"></div>
+        </div>
+        <div class="card">
+          <div id="ext-card"></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">解禁日历 · 未来 30 日</div>
+            <div class="tb-tip">东财数据中心 · 占总股本比 ≥5% 标红 · 解禁≠必跌，关注解禁前后的筹码结构</div>
+          </div>
+          <div id="unlock-body"></div>
         </div>
       </div>
       <div class="view" id="view-alert" style="display:none">
@@ -3113,6 +3151,8 @@ window.BOARD_DATA = __DATA__;
     renderNavModules();
     renderStage();
     renderPromotion();
+    renderExt();
+    renderUnlock();
     renderAlert();
     renderCycleView();
     renderThemeView();
@@ -3121,6 +3161,31 @@ window.BOARD_DATA = __DATA__;
     renderFocus();
     renderSidePanel();
     renderDatebar();
+  }
+
+  function renderUnlock() {
+    var box = document.getElementById("unlock-body");
+    if (!box) return;
+    var u = data.unlock;
+    if (!u || !u.total) { box.innerHTML = '<div class="empty">解禁数据未采集</div>'; return; }
+    var html = '<div class="prev-stats">' +
+      '<div class="prev-stat"><div class="v">' + u.days.length + ' 天</div><div class="l">有解禁日</div></div>' +
+      '<div class="prev-stat"><div class="v">' + u.total + ' 只</div><div class="l">解禁个股</div></div>' +
+      '<div class="prev-stat"><div class="v ' + (u.total_mv >= 500 ? "money-out" : "") + '">' + u.total_mv + '亿</div><div class="l">30日解禁市值</div></div>' +
+      '</div>';
+    html += '<table style="margin-top:10px;"><tr><th>名称</th><th>解禁日</th><th>解禁市值</th><th>占总股本</th><th>类型</th></tr>';
+    u.stocks.forEach(function (r) {
+      var hot = r.ratio !== null && r.ratio >= 5;
+      html += '<tr>' +
+        '<td>' + nameLink(r) + '</td>' +
+        '<td class="num">' + r.日期 + '</td>' +
+        '<td class="num">' + r.mv + '亿</td>' +
+        '<td class="num"><b' + (hot ? ' style="color:var(--down,#c0392b);"' : '') + '>' + (r.ratio !== null && r.ratio !== undefined ? r.ratio + '%' : '-') + '</b></td>' +
+        '<td style="color:var(--ink3);font-size:12px;">' + esc(r.类型 || '-') + '</td>' +
+        '</tr>';
+    });
+    html += '</table>';
+    box.innerHTML = html;
   }
 
   function bindFilters() {
