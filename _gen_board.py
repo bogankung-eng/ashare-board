@@ -980,6 +980,38 @@ def analyze_dragons(pools):
     return {"pool": cands[:15]}
 
 
+def analyze_seal_time(pools):
+    """P9: 首次封板时间五桶分布（借鉴 Vibe-Astock 封板结构维度）。
+    竞价+早盘封板占比高 = 承接强/情绪强；尾盘占比高 = 偷袭板/封板质量弱。
+    数据源：涨停池"首次封板时间"（akshare HHMMSS 六位字符串），历史全量可用。"""
+    cnt = {"竞价": 0, "早盘": 0, "上午": 0, "下午": 0, "尾盘": 0}
+    for r in pools["zt"]:
+        t = str(r.get("首次封板时间") or "")
+        if len(t) != 6 or not t.isdigit():
+            continue
+        v = int(t[:4])
+        if v <= 925:
+            cnt["竞价"] += 1
+        elif v < 1000:
+            cnt["早盘"] += 1
+        elif v <= 1130:
+            cnt["上午"] += 1
+        elif v < 1430:
+            cnt["下午"] += 1
+        else:
+            cnt["尾盘"] += 1
+    total = sum(cnt.values())
+    if not total:
+        return None
+    return {
+        "total": total,
+        "buckets": [{"label": k, "n": v, "pct": round(v / total * 100)}
+                    for k, v in cnt.items()],
+        "early_pct": round((cnt["竞价"] + cnt["早盘"]) / total * 100),
+        "late_pct": round(cnt["尾盘"] / total * 100),
+    }
+
+
 def analyze_promotion(days, dates):
     """板块晋级率：各板块首板率 / 一进二 / 二进三 / 三进四 + 同比昨日
     晋级归属 = 今日股票所在板块；比率 = 今日晋级数/昨日基数"""
@@ -1501,6 +1533,7 @@ def build(dates):
             "themes": themes,
             "hl": hl_conclusion,
             "ext": analyze_ext(ext, pools),
+            "seal": analyze_seal_time(pools),
             "seats": analyze_seats(conn, d),
             "leaders": analyze_leaders(conn, d, pools, sent),
             "dragons": analyze_dragons(pools),
@@ -2165,6 +2198,24 @@ window.BOARD_DATA = __DATA__;
     });
     html += '<div class="sent-item"><div class="label">情绪标签</div><div class="value" style="padding-top:4px;"><span class="tag-big tag-' + s.tag_cls + '">' + s.tag + '</span></div><div class="subv">规则引擎 v0</div></div>';
     html += '</div>';
+    // P9: 首次封板时间分布条（早盘含竞价封板占比 = 情绪强度代理）
+    var st = day.seal;
+    if (st) {
+      var sc = {"竞价": "var(--up)", "早盘": "#D4664F", "上午": "var(--amber)", "下午": "#9a8f7d", "尾盘": "#6f675a"};
+      var bar = "";
+      st.buckets.forEach(function (b) {
+        if (!b.n) return;
+        bar += '<div style="width:' + b.pct + '%;background:' + sc[b.label] + ';" title="' + b.label + ' ' + b.n + ' 只（' + b.pct + '%）"></div>';
+      });
+      var legend = st.buckets.filter(function (b) { return b.n; }).map(function (b) {
+        return '<span style="display:inline-flex;align-items:center;gap:4px;"><i style="width:8px;height:8px;border-radius:2px;background:' + sc[b.label] + ';display:inline-block;"></i>' + b.label + ' ' + b.n + '</span>';
+      }).join(' ');
+      html += '<div style="margin-top:12px;">' +
+        '<div style="font-size:12px;color:var(--ink2);margin-bottom:6px;">封板时间分布 · 竞价+早盘占 <b style="color:' + (st.early_pct >= 50 ? "var(--up)" : "var(--ink)") + '">' + st.early_pct + '%</b> · 尾盘偷袭 ' + st.late_pct + '%</div>' +
+        '<div style="display:flex;height:16px;border-radius:5px;overflow:hidden;background:var(--line);">' + bar + '</div>' +
+        '<div style="font-size:11.5px;color:var(--ink3);margin-top:5px;">' + legend + '</div>' +
+        '</div>';
+    }
     document.getElementById("sentiment").innerHTML = html;
   }
 
