@@ -1227,6 +1227,102 @@ def fetch_quotes(codes):
 NAMEPLAY_STOP = {"股", "份", "集", "团"}
 
 
+def _pool_lb_stat(stat):
+    """涨停统计 '6/4'（天/板）→ 板数 4；解析失败按 1 板"""
+    try:
+        return int(str(stat).split("/")[1])
+    except Exception:
+        return 1
+
+
+def _hhmm_to_min(t, default="150000"):
+    """'092500' → 565 分钟"""
+    s = str(t or default)
+    if len(s) >= 4 and s[:4].isdigit():
+        return int(s[:2]) * 60 + int(s[2:4])
+    return 900
+
+
+def analyze_day_timeline(days, dates):
+    """当日时间线：上板事件流（情绪）· 板块启动顺序（强弱）· 高标炸板→他板上板（节点转换）"""
+    if not dates:
+        return {"events": [], "nodes": [], "inds": [], "n_up": 0, "n_zb": 0, "max_lb": 0}
+    day = days[dates[-1]]
+    zt, zb = day["pools"]["zt"], day["pools"]["zb"]
+    ups, downs = [], []
+    for r in zt:
+        ups.append({"code": r.get("代码"), "name": r.get("名称"),
+                    "ind": r.get("所属行业") or "其他",
+                    "lb": int(r.get("连板数") or 0), "t": _hhmm_to_min(r.get("首次封板时间")),
+                    "turn": float(r.get("换手率") or 0), "zbcnt": 0, "kind": "up",
+                    "reason": str(r.get("涨停原因") or "").split("+")[0][:16]})
+    for r in zb:
+        downs.append({"code": r.get("代码"), "name": r.get("名称"),
+                      "ind": r.get("所属行业") or "其他",
+                      "lb": _pool_lb_stat(r.get("涨停统计")), "t": _hhmm_to_min(r.get("首次封板时间")),
+                      "turn": float(r.get("换手率") or 0),
+                      "zbcnt": max(int(r.get("炸板次数") or 1), 1), "kind": "zb"})
+    events = sorted(ups + downs, key=lambda e: e["t"])
+    max_lb = max((u["lb"] for u in ups), default=0)
+    # 高标炸板：板数≥3 或 达当日最高板（炸板池板数按涨停统计回溯）
+    high_zb = [z for z in downs if z["lb"] >= 3 or (max_lb and z["lb"] >= max_lb)]
+    # 节点转换：高标炸板后 10 分钟内、他板块个股上板
+    nodes = []
+    for z in sorted(high_zb, key=lambda e: e["t"]):
+        after = [u for u in ups
+                 if z["t"] <= u["t"] <= z["t"] + 10 and u["ind"] != z["ind"]]
+        if after:
+            nodes.append({"zb": z, "after": after[:3]})
+    # 板块启动顺序（强弱）：按板块首板时间
+    ind_m = {}
+    for u in ups:
+        m = ind_m.setdefault(u["ind"], {"ind": u["ind"], "first": u["t"], "n": 0, "maxlb": 0})
+        m["n"] += 1
+        m["maxlb"] = max(m["maxlb"], u["lb"])
+        m["first"] = min(m["first"], u["t"])
+    inds = sorted(ind_m.values(), key=lambda m: (m["first"], -m["n"]))
+    return {"date": dates[-1], "events": events, "nodes": nodes, "inds": inds,
+            "n_up": len(ups), "n_zb": len(downs), "max_lb": max_lb}
+
+
+def analyze_period_timeline(days, dates, n):
+    """周/月时间线：每日情绪柱 + 板块热力矩阵 + 关键节点（新高/断层/冰点/高潮）"""
+    dd = dates[-n:]
+    if not dd:
+        return {"days": [], "nodes": [], "matrix": [], "dates": []}
+    days_arr = []
+    for d in dd:
+        day = days[d]
+        zt, zb, dt = day["pools"]["zt"], day["pools"]["zb"], day["pools"]["dt"]
+        lbs = [int(r.get("连板数") or 0) for r in zt]
+        days_arr.append({"date": d, "zt": len(zt), "dt": len(dt), "zb": len(zb),
+                         "maxlb": max(lbs) if lbs else 0})
+    nodes, prev_max = [], 0
+    for i, e in enumerate(days_arr):
+        if e["maxlb"] > prev_max and e["maxlb"] >= 4:
+            nodes.append({"date": e["date"], "type": "high", "txt": f"空间板新高 {e['maxlb']}板"})
+        elif prev_max and e["maxlb"] <= prev_max - 2:
+            nodes.append({"date": e["date"], "type": "break", "txt": f"高度断层 {prev_max}板→{e['maxlb']}板"})
+        prev_max = max(prev_max, e["maxlb"])
+        if i >= 3:
+            avg = sum(x["zt"] for x in days_arr[i - 3:i]) / 3
+            if e["zt"] < avg * 0.55:
+                nodes.append({"date": e["date"], "type": "ice",
+                              "txt": f"涨停冰点 {e['zt']}家（前3日均 {avg:.0f}）"})
+            elif e["zt"] > avg * 1.6:
+                nodes.append({"date": e["date"], "type": "hot",
+                              "txt": f"涨停高潮 {e['zt']}家（前3日均 {avg:.0f}）"})
+    ind_stat = {}
+    for d in dd:
+        for r in days[d]["pools"]["zt"]:
+            ind = r.get("所属行业") or "其他"
+            ind_stat.setdefault(ind, {})
+            ind_stat[ind][d] = ind_stat[ind].get(d, 0) + 1
+    matrix = [{"ind": k, "vals": [v.get(d, 0) for d in dd], "total": sum(v.values())}
+              for k, v in sorted(ind_stat.items(), key=lambda kv: -sum(kv[1].values()))[:8]]
+    return {"days": days_arr, "nodes": nodes, "matrix": matrix, "dates": dd}
+
+
 def analyze_nameplay(days, dates, lookback=5):
     """字辈挖掘：同一汉字被多只涨停股共享 → 市场共识字辈（华字辈/洋字辈等）。
     活跃 = 今日≥3只；观察 = 今日2只；连燃 = 连续N日≥2只。只统计今日仍出现的字。"""
@@ -1567,12 +1663,15 @@ def build(dates):
     today_zt = {r.get("代码"): r for r in days[dates[-1]]["pools"]["zt"]} if dates else {}
     focus = enrich_focus(focus_cands, quotes, today_zt)
     themelib = enrich_themelib(themelib_cfg, quotes, today_zt)
+    timeline = {"day": analyze_day_timeline(days, dates),
+                "week": analyze_period_timeline(days, dates, 5),
+                "month": analyze_period_timeline(days, dates, 22)}
     conn.close()
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
             "lowpos": lowpos, "screener": screener, "news": news,
             "promotion": promotion, "newsMap": news_map,
             "nameplay": nameplay, "focus": focus, "themelib": themelib,
-            "unlock": unlock}
+            "unlock": unlock, "timeline": timeline}
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -1819,6 +1918,52 @@ TEMPLATE = r"""<!DOCTYPE html>
   .tlp-subname{min-width:118px;font-size:12.5px;font-weight:600;color:var(--ink2);}
   .tlp-subzt{color:var(--up);font-size:10.5px;margin-left:4px;}
   .tlp-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .tlp-sec{margin-bottom:14px;}
+  .tlp-sec-t{display:block;font-size:11.5px;font-weight:700;color:var(--ink3);margin-bottom:7px;letter-spacing:1px;}
+  .tlp-node{background:var(--amberbg);border-left:3px solid var(--accent);border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:12.5px;line-height:1.7;color:var(--ink2);}
+  .tlp-node-t{font-weight:700;color:var(--accent);margin-right:4px;}
+  .tlp-node-lb{color:var(--up);font-weight:700;}
+  .tlp-node-arrow{color:var(--accent);font-weight:700;}
+  .tlp-node-ind{color:var(--ink3);font-size:11.5px;}
+  .tlp-inds{display:flex;flex-wrap:wrap;gap:6px;}
+  .tlp-ind-t{color:var(--accent);font-weight:700;}
+  .tlp-inds i{font-style:normal;color:var(--ink3);font-size:11px;}
+  .tev-wrap{max-height:420px;overflow-y:auto;border-left:2px solid var(--line);padding-left:10px;}
+  .tev{display:flex;align-items:center;gap:7px;padding:3px 0;font-size:12.5px;position:relative;}
+  .tev-t{color:var(--ink3);font-size:11px;min-width:34px;font-variant-numeric:tabular-nums;}
+  .tev-dot{width:7px;height:7px;border-radius:50%;flex:none;}
+  .tev-up{background:var(--up);box-shadow:0 0 0 2px var(--upbg);}
+  .tev-zb{background:var(--amber);box-shadow:0 0 0 2px var(--amberbg);}
+  .tev-lb{color:var(--up);font-size:11px;}
+  .tev-ind{color:var(--ink3);font-size:11px;}
+  .tev-r{color:var(--ink2);font-size:11.5px;}
+  .tev-turn{color:var(--amber);font-size:11px;}
+  .tev-blow{color:#fff;background:var(--up);border-radius:4px;padding:0 5px;font-size:10.5px;font-weight:700;}
+  .tev-zbtag{color:var(--amber);font-size:11px;font-weight:600;}
+  .tlp-pnode{display:inline-block;border-radius:6px;padding:4px 10px;margin:0 6px 6px 0;font-size:12px;background:var(--card);border:1px solid var(--line);}
+  .tlp-n-high{background:var(--upbg);border-color:rgba(192,57,43,.35);color:var(--up);font-weight:600;}
+  .tlp-n-break{background:var(--downbg);border-color:rgba(30,138,95,.35);color:var(--down);font-weight:600;}
+  .tlp-n-ice{background:var(--bluebg);color:var(--blue);}
+  .tlp-n-hot{background:var(--amberbg);border-color:rgba(183,122,22,.4);color:var(--amber);font-weight:600;}
+  .tlp-days{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;}
+  .tlp-day{flex:none;width:86px;border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 10px;display:flex;flex-direction:column;gap:3px;}
+  .tlp-day b{font-size:11.5px;}
+  .tlp-d-zt{font-size:16px;font-weight:800;}
+  .tlp-d-sub{font-size:10.5px;color:var(--ink3);}
+  .tlp-d-hot{background:var(--upbg);border-color:rgba(192,57,43,.3);}
+  .tlp-d-hot .tlp-d-zt{color:var(--up);}
+  .tlp-d-cold{background:var(--downbg);}
+  .tlp-d-cold .tlp-d-zt{color:var(--down);}
+  .tlp-d-mid{background:var(--card);}
+  .tlp-d-mid .tlp-d-zt{color:var(--ink);}
+  .tlp-matrix{overflow-x:auto;}
+  .tlp-matrix table{border-collapse:collapse;font-size:11.5px;min-width:100%;}
+  .tlp-matrix th,.tlp-matrix td{border:1px solid var(--line);padding:4px 7px;text-align:center;white-space:nowrap;}
+  .tlp-matrix th{color:var(--ink3);font-weight:600;font-size:10.5px;}
+  .tlp-m-ind{text-align:left;font-weight:600;color:var(--ink2);}
+  .tlp-m-hi{background:var(--upbg);color:var(--up);font-weight:700;}
+  .tlp-m-lo{background:var(--amberbg);}
+  .tlp-m-sum{font-weight:700;color:var(--ink);}
   @media (max-width:720px){
     .np-row{grid-template-columns:64px 1fr;grid-template-areas:"ch st" "mem mem";}
     .np-char{grid-area:ch;}
@@ -2058,6 +2203,20 @@ TEMPLATE = r"""<!DOCTYPE html>
             <div class="tb-tip">AI硬件·战略板块（中长线） / AI应用·传媒·消费（短线）</div>
           </div>
           <div id="tl-body"></div>
+        </div>
+      </div>
+      <div class="view" id="view-timeline" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">时间线 <span class="cnt" id="tlp-cnt"></span></div>
+            <div class="scr-tabs">
+              <button class="scr-btn active" data-p="day" onclick="setTlPeriod('day')">当日</button>
+              <button class="scr-btn" data-p="week" onclick="setTlPeriod('week')">当周</button>
+              <button class="scr-btn" data-p="month" onclick="setTlPeriod('month')">当月</button>
+            </div>
+          </div>
+          <div class="tb-tip" id="tlp-tip"></div>
+          <div id="tlp-body"></div>
         </div>
       </div>
       <div class="view" id="view-screener" style="display:none">
@@ -2756,7 +2915,7 @@ window.BOARD_DATA = __DATA__;
     document.querySelectorAll(".mod-btn").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-mod") === name);
     });
-    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库" };
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
     renderAll();
@@ -2774,6 +2933,7 @@ window.BOARD_DATA = __DATA__;
       { k: "screener", t: "选股器", i: "◎" },
       { k: "news", t: "公告资讯", i: "❐" },
       { k: "focus", t: "聚焦挖掘", i: "◉" },
+      { k: "timeline", t: "时间线", i: "⌛" },
     ];
     var h = "";
     items.forEach(function (it) {
@@ -3198,6 +3358,119 @@ window.BOARD_DATA = __DATA__;
     document.getElementById("tl-cnt").textContent = tl.length + "大方向";
   }
 
+  var tlPeriod = "day";
+  window.setTlPeriod = function (p) {
+    tlPeriod = p;
+    document.querySelectorAll(".scr-btn[data-p]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-p") === p);
+    });
+    renderTimeline();
+  };
+
+  function fmtMin(m) {
+    var h = Math.floor(m / 60), mm = m % 60;
+    return (h < 10 ? "0" : "") + h + ":" + (mm < 10 ? "0" : "") + mm;
+  }
+
+  function fmtDate8(d) {
+    var s = String(d);
+    return s.length >= 8 ? s.slice(4, 6) + "/" + s.slice(6, 8) : s;
+  }
+
+  function renderTimeline() {
+    var tl = data.timeline || {}, box = document.getElementById("tlp-body");
+    var tip = document.getElementById("tlp-tip");
+    var cnt = document.getElementById("tlp-cnt");
+    /* ---------- 当日 ---------- */
+    if (tlPeriod === "day") {
+      var day = tl.day || { events: [], nodes: [], inds: [], n_up: 0, n_zb: 0, max_lb: 0 };
+      cnt.textContent = day.n_up + "板/" + day.n_zb + "炸";
+      tip.textContent = fmtDate8(day.date || "") + " · 红点=上板 橙点=炸板 · 高标炸板→他板10分钟内上板 = 情绪节点转换";
+      var h = "";
+      /* 节点转换（最重要，置顶） */
+      h += '<div class="tlp-sec"><span class="tlp-sec-t">节点转换</span>';
+      if (day.nodes && day.nodes.length) {
+        day.nodes.forEach(function (nd) {
+          var z = nd.zb;
+          h += '<div class="tlp-node"><span class="tlp-node-t">' + fmtMin(z.t) + '</span> 高标 <b>' +
+            stockLink(z.code, z.name) + '</b> <span class="tlp-node-lb">' + z.lb + '板</span> 炸板 → ';
+          nd.after.forEach(function (u, i) {
+            h += (i ? " / " : "") + '<span class="tlp-node-arrow">' + fmtMin(u.t) + '</span> ' +
+              stockLink(u.code, u.name) + '<span class="tlp-node-ind">【' + esc(u.ind) + '】' + (u.lb > 1 ? u.lb + "板" : "上板") + '</span>';
+          });
+          h += '</div>';
+        });
+      } else {
+        h += '<div class="np-empty">今日无高标炸板转换 · 接力顺畅</div>';
+      }
+      h += '</div>';
+      /* 板块启动顺序（强弱） */
+      h += '<div class="tlp-sec"><span class="tlp-sec-t">板块启动顺序</span><div class="tlp-inds">';
+      (day.inds || []).forEach(function (m) {
+        h += '<span class="chip' + (m.maxlb >= 3 ? " chip-zt" : "") + '"><b class="tlp-ind-t">' + fmtMin(m.first) + '</b> ' +
+          esc(m.ind) + ' <i>' + m.n + '家' + (m.maxlb > 1 ? "/" + m.maxlb + "板" : "") + '</i></span>';
+      });
+      h += '</div></div>';
+      /* 主事件轴（情绪） */
+      h += '<div class="tlp-sec"><span class="tlp-sec-t">事件轴</span><div class="tev-wrap">';
+      (day.events || []).forEach(function (e) {
+        h += '<div class="tev"><span class="tev-t">' + fmtMin(e.t) + '</span><span class="tev-dot ' +
+          (e.kind === "up" ? "tev-up" : "tev-zb") + '"></span>' +
+          stockLink(e.code, e.name) +
+          (e.lb > 1 ? '<b class="tev-lb">' + e.lb + '板</b>' : '') +
+          '<span class="tev-ind">' + esc(e.ind) + '</span>' +
+          (e.kind === "up"
+            ? (e.reason ? '<span class="tev-r">' + esc(e.reason) + '</span>' : '') +
+              (e.lb >= 3 ? '<span class="' + (e.turn >= 20 ? "tev-blow" : "tev-turn") + '">' + (e.turn >= 20 ? "爆量" : "换手") + e.turn.toFixed(0) + '%</span>' : '')
+            : '<span class="tev-zbtag">炸' + e.zbcnt + '次</span>') +
+          '</div>';
+      });
+      h += '</div></div>';
+      box.innerHTML = h;
+      return;
+    }
+    /* ---------- 当周 / 当月 ---------- */
+    var per = tl[tlPeriod] || { days: [], nodes: [], matrix: [], dates: [] };
+    cnt.textContent = per.dates.length + "个交易日";
+    tip.textContent = (tlPeriod === "week" ? "近 5 个交易日" : "近 22 个交易日") + " · 情绪柱颜色=涨停家数相对冷热 · 断层/冰点/高潮自动标记";
+    var h2 = "";
+    /* 关键节点 */
+    h2 += '<div class="tlp-sec"><span class="tlp-sec-t">关键节点</span>';
+    if (per.nodes && per.nodes.length) {
+      per.nodes.slice().reverse().forEach(function (n) {
+        var cls = { high: "tlp-n-high", break: "tlp-n-break", ice: "tlp-n-ice", hot: "tlp-n-hot" }[n.type] || "tlp-n-ice";
+        h2 += '<div class="tlp-pnode ' + cls + '"><b>' + fmtDate8(n.date) + '</b> ' + esc(n.txt) + '</div>';
+      });
+    } else {
+      h2 += '<div class="np-empty">区间内无新高/断层/冰点/高潮节点</div>';
+    }
+    h2 += '</div>';
+    /* 情绪柱 */
+    h2 += '<div class="tlp-sec"><span class="tlp-sec-t">每日情绪</span><div class="tlp-days">';
+    var maxZt = Math.max.apply(null, per.days.map(function (e) { return e.zt; }).concat([1]));
+    per.days.forEach(function (e) {
+      var ratio = e.zt / maxZt;
+      var heat = ratio > 0.72 ? "tlp-d-hot" : (ratio < 0.4 ? "tlp-d-cold" : "tlp-d-mid");
+      h2 += '<div class="tlp-day ' + heat + '"><b>' + fmtDate8(e.date) + '</b>' +
+        '<span class="tlp-d-zt">' + e.zt + '板</span>' +
+        '<span class="tlp-d-sub">高' + e.maxlb + ' 炸' + e.zb + ' 跌' + e.dt + '</span></div>';
+    });
+    h2 += '</div></div>';
+    /* 板块热力矩阵 */
+    h2 += '<div class="tlp-sec"><span class="tlp-sec-t">板块涨停热力</span><div class="tlp-matrix"><table><tr><th></th>';
+    per.dates.forEach(function (d) { h2 += '<th>' + fmtDate8(d) + '</th>'; });
+    h2 += '<th>合计</th></tr>';
+    (per.matrix || []).forEach(function (row) {
+      h2 += '<tr><td class="tlp-m-ind">' + esc(row.ind) + '</td>';
+      row.vals.forEach(function (v) {
+        h2 += '<td class="' + (v >= 3 ? "tlp-m-hi" : (v > 0 ? "tlp-m-lo" : "")) + '">' + (v || "·") + '</td>';
+      });
+      h2 += '<td class="tlp-m-sum">' + row.total + '</td></tr>';
+    });
+    h2 += '</table></div></div>';
+    box.innerHTML = h2;
+  }
+
   function renderAll() {
     renderNavModules();
     renderStage();
@@ -3210,6 +3483,7 @@ window.BOARD_DATA = __DATA__;
     renderScreener();
     renderNews();
     renderFocus();
+    renderTimeline();
     renderSidePanel();
     renderDatebar();
   }
