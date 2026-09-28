@@ -1823,7 +1823,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .desk-grid .col{display:flex; flex-direction:column; gap:14px;}
   .desk-grid .card{margin-bottom:0;}
   @media (min-width:1024px){
-    .desk-grid{grid-template-columns:200px 1fr; align-items:start;}
+    .desk-grid{grid-template-columns:200px 1.4fr 1fr; align-items:start;}
   }
   .nav-card{padding:14px 0 12px;}
   .brand{text-align:center;font-size:14px;font-weight:600;color:#fff;background:var(--blue);margin:-14px -1px 0 -1px;padding:10px;border-radius:0;}
@@ -1835,8 +1835,6 @@ TEMPLATE = r"""<!DOCTYPE html>
   .nav-group.fold .mod-btn.sub{display:none;}
   .nav-group.fold .nav-caret{transform:rotate(-90deg);}
   .mod-btn.sub{padding-left:24px;}
-  .tone-strip{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:14px;margin-bottom:14px;}
-  @media (max-width:1023px){.tone-strip{grid-template-columns:1fr;}}
   .mod-btn.active{background:var(--accent-soft);color:var(--accent);border-color:rgba(232,131,58,.4);font-weight:600;}
   .mod-btn .ic{font-size:14px;width:16px;text-align:center;color:var(--ink3);}
   .mod-btn.active .ic{color:var(--accent);}
@@ -2004,7 +2002,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .ana-why{color:var(--ink2);flex:1;min-width:180px;}
   .ana-cat{color:var(--ink3);font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 6px;}
   @media (max-width:1023px){
-    .col-nav{order:1;} .col-main{order:2;}
+    .col-nav{order:1;} .col-main{order:2;} .col-side{order:3;}
     .metric-grid{grid-template-columns:repeat(3,1fr);}
     .core-grid{grid-template-columns:repeat(3,1fr);}
   }
@@ -2139,11 +2137,6 @@ TEMPLATE = r"""<!DOCTYPE html>
 
     <div class="col col-main">
       <div class="view" id="view-stage">
-        <div class="tone-strip">
-          <div class="card"><div id="side-tone"></div></div>
-          <div class="card"><div id="side-coredata"></div></div>
-          <div class="card"><div id="side-prev"></div></div>
-        </div>
         <div class="card">
           <div class="toolbar">
             <div class="tb-title">涨停梯队 <span class="cnt" id="stage-cnt"></span></div>
@@ -2248,7 +2241,18 @@ TEMPLATE = r"""<!DOCTYPE html>
       </div>
     </div>
 
-  </div>
+      <div class="col col-side">
+        <div class="card">
+          <div id="side-tone"></div>
+        </div>
+        <div class="card">
+          <div id="side-coredata"></div>
+        </div>
+        <div class="card">
+          <div id="side-prev"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="panel panel-trend">
