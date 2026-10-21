@@ -17,3 +17,4 @@ _probe.txt
 # 系统
 .DS_Store
 Thumbs.db
+_auto_run_*.log
