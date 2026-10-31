@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from boardlib.analysis import build, load_dates
+from boardlib.analysis import build, load_dates, write_history
 from boardlib.config import BASE, DB, OUT
 from boardlib.template import TEMPLATE
 
@@ -34,7 +34,7 @@ def main():
             return
         dates = [args.date]
 
-    data = build(dates)
+    data = write_history(build(dates))
     html = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False))
     # 供应链安全：gsap 内联（CDN 被墙时页面动画失效/白屏风险），本地 assets 优先，缺失时回退 CDN
     gsap_path = os.path.join(BASE, "assets", "gsap.min.js")

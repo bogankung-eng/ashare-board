@@ -1590,6 +1590,52 @@ def load_unlock(conn, base_date):
 
 
 
+RECENT_DAYS = 5  # board.html 内嵌的最近交易日数，其余 days 按月外置懒加载
+
+
+def write_history(data, out_dirs=None):
+    """P12 数据分片：days 按月写外置 JSON（部署物），data 只保留最近 RECENT_DAYS 天内嵌。
+
+    - 写两处：public/data/history/（CF Pages 部署物，随 git 入库）与 data/history/（本地根目录预览）
+    - 与已有文件 merge（单日 --date 调试模式不会清掉历史月份）
+    - data.historyMonths 供前端提示可加载月份
+    返回裁剪后的 data。"""
+    out_dirs = out_dirs or [os.path.join(BASE, "public", "data", "history"),
+                            os.path.join(BASE, "data", "history")]
+    days = data.get("days") or {}
+    if not days:
+        return data
+    by_month = {}
+    for d in sorted(days):
+        by_month.setdefault(d[:6], {})[d] = days[d]
+    # merge 已有历史（--date 单日跑不覆盖全量历史文件）
+    all_months = set(by_month)
+    for od in out_dirs:
+        if os.path.isdir(od):
+            for fn in os.listdir(od):
+                if fn.startswith("history_") and fn.endswith(".json"):
+                    all_months.add(fn[8:16])
+    for ym in sorted(all_months):
+        merged = {}
+        for od in out_dirs:
+            fp = os.path.join(od, f"history_{ym}.json")
+            if os.path.exists(fp):
+                try:
+                    merged.update(json.load(open(fp, encoding="utf-8")))
+                except Exception:
+                    pass
+        merged.update(by_month.get(ym, {}))
+        for od in out_dirs:
+            os.makedirs(od, exist_ok=True)
+            with open(os.path.join(od, f"history_{ym}.json"), "w", encoding="utf-8") as f:
+                json.dump(merged, f, ensure_ascii=False, separators=(",", ":"))
+    keep = sorted(days)[-RECENT_DAYS:]
+    trimmed = dict(data)
+    trimmed["days"] = {d: days[d] for d in keep}
+    trimmed["historyMonths"] = sorted(all_months)
+    return trimmed
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}

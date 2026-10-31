@@ -163,3 +163,32 @@ def test_seal_time_buckets(days):
     assert st["total"] > 0
     assert sum(b["n"] for b in st["buckets"]) == st["total"]
     assert sum(b["pct"] for b in st["buckets"]) in (99, 100, 101), "五桶百分比取整后应接近 100"
+
+
+# ---------- P12 数据分片 ----------
+
+def test_write_history_split_and_trim(tmp_path):
+    import boardlib.analysis as A
+    d1, d2 = {"zt": [], "dt": [], "zb": []}, {"zt": [], "dt": [], "zb": []}
+    data = {"days": {"20260901": d1, "20261001": d2},
+            "dates": ["20260901", "20261001"]}
+    out = tmp_path / "history"
+    trimmed = A.write_history(dict(data), out_dirs=[str(out)])
+    assert (out / "history_202609.json").exists()
+    assert (out / "history_202610.json").exists()
+    assert set(trimmed["days"]) <= {"20260901", "20261001"}  # ≤ RECENT_DAYS
+    assert trimmed["historyMonths"] == ["202609", "202610"]
+
+
+def test_write_history_merge_keeps_existing(tmp_path):
+    """--date 单日调试模式不得清掉既有历史月份。"""
+    import json as J
+    import boardlib.analysis as A
+    out = tmp_path / "history"
+    out.mkdir()
+    old = {"20260815": {"zt": [], "dt": [], "zb": []}}
+    (out / "history_202608.json").write_text(J.dumps(old), encoding="utf-8")
+    data = {"days": {"20261009": {"zt": [], "dt": [], "zb": []}}, "dates": ["20261009"]}
+    A.write_history(dict(data), out_dirs=[str(out)])
+    merged = J.loads((out / "history_202608.json").read_text(encoding="utf-8"))
+    assert "20260815" in merged, "既有历史月份不得丢失"

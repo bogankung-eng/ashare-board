@@ -25,7 +25,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   .wrap{max-width:1320px; margin:0 auto; padding:22px 18px 60px;}
   .shell{background:var(--card); border:1px solid var(--border); border-radius:28px; padding:24px 26px 34px; box-shadow:0 40px 90px -50px rgba(0,0,0,.4); position:relative; overflow:hidden;}
   .shell::before{content:""; position:absolute; top:0; right:0; width:280px; height:200px; background:radial-gradient(280px 200px at 90% -10%, rgba(232,162,58,.15), transparent 60%); pointer-events:none;}
-  .topbar{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; background:var(--toolbar); border:none; border-radius:var(--r-sm); padding:11px 18px; box-shadow:var(--shadow);}
+    #h-toast{display:none;position:fixed;right:16px;bottom:16px;background:var(--toolbar);color:var(--ink);border:1px solid var(--toolbar-line);border-radius:8px;padding:9px 14px;font-size:12.5px;z-index:99;}
+.topbar{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; background:var(--toolbar); border:none; border-radius:var(--r-sm); padding:11px 18px; box-shadow:var(--shadow);}
   h1{font-size:16.5px; font-weight:600; color:#f5f1ea; letter-spacing:-.01em;}
   .sub{color:#a89c8e; font-size:12px;}
   .datebar{display:flex; gap:4px; flex-wrap:wrap;}
@@ -388,6 +389,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <body>
 <div class="wrap">
 <div class="shell">
+<div id="h-toast"></div>
   <div class="topbar">
     <div>
       <h1>A股行情看板 · 短线 + 中长线趋势</h1>
@@ -655,6 +657,36 @@ window.BOARD_DATA = __DATA__;
     return String(s === null || s === undefined ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
+  var histCache = {};
+  function toast(msg) {
+    var t = document.getElementById("h-toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(t._tm);
+    t._tm = setTimeout(function () { t.style.display = "none"; }, 4000);
+  }
+  function setDate(d) {
+    if (data.days[d]) { cur = d; renderAll(); return; }
+    var ym = d.slice(0, 6);
+    if (histCache[ym]) {
+      Object.keys(histCache[ym]).forEach(function (k) { if (!data.days[k]) data.days[k] = histCache[ym][k]; });
+      cur = d; renderAll(); return;
+    }
+    toast("加载 " + fmtDate(d) + " 历史数据...");
+    fetch("data/history/history_" + ym + ".json").then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (j) {
+      histCache[ym] = j;
+      Object.keys(j).forEach(function (k) { if (!data.days[k]) data.days[k] = j[k]; });
+      cur = d; renderAll();
+    }).catch(function () {
+      toast(fmtDate(d) + " 历史数据加载失败（本地 file:// 打开不支持，请在线访问 pages.dev）");
+    });
+  }
+  window.setDate = setDate;
+
   function renderDatebar() {
     var bar = document.getElementById("datebar");
     bar.innerHTML = "";
@@ -662,7 +694,7 @@ window.BOARD_DATA = __DATA__;
       var b = document.createElement("button");
       b.className = "datebtn" + (d === cur ? " active" : "");
       b.textContent = fmtDate(d).slice(5);
-      b.onclick = function () { cur = d; renderAll(); };
+      b.onclick = function () { setDate(d); };
       bar.appendChild(b);
     });
   }
