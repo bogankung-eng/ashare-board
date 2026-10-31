@@ -192,3 +192,16 @@ def test_write_history_merge_keeps_existing(tmp_path):
     A.write_history(dict(data), out_dirs=[str(out)])
     merged = J.loads((out / "history_202608.json").read_text(encoding="utf-8"))
     assert "20260815" in merged, "既有历史月份不得丢失"
+
+
+def test_seal_quality_structure(days):
+    dd, d3 = days
+    sq = A.analyze_seal_quality(dd, d3)
+    assert sq is not None
+    assert {"gap", "refeng", "refeng_n", "funds", "cur_max", "prev_max"} <= set(sq)
+    if sq["refeng"] is not None:
+        assert 0 <= sq["refeng"] <= 100
+    for f in sq["funds"]:
+        assert f["cur"] is None or f["cur"] >= 0
+        assert f["prev"] is None or f["prev"] >= 0
+    assert sq["cur_max"] >= 0 and sq["prev_max"] >= 0

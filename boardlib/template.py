@@ -197,7 +197,9 @@ TEMPLATE = r"""<!DOCTYPE html>
   .temp-fill{height:100%;background:rgba(255,255,255,0.4);border-radius:4px;}
   .temp-marker{position:absolute;top:-4px;width:4px;height:16px;background:#1f2430;border-radius:2px;transform:translateX(-50%);}
   .temp-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--ink3);padding:2px 0;}
-  .risk-line{display:flex;justify-content:space-between;align-items:center;padding:6px 4px;margin-top:6px;background:var(--panel-2);border-radius:6px;font-size:11px;color:var(--ink2);}
+  .sq-gap{font-size:11.5px;border-left:3px solid var(--amber);background:var(--amberbg);color:var(--amber);padding:5px 9px;border-radius:5px;margin-bottom:8px;line-height:1.5;}
+  .sq-gap.sq-break{border-left-color:var(--up);background:var(--upbg);color:var(--up);font-weight:600;}
+.risk-line{display:flex;justify-content:space-between;align-items:center;padding:6px 4px;margin-top:6px;background:var(--panel-2);border-radius:6px;font-size:11px;color:var(--ink2);}
   .tone-tag{display:inline-block;font-size:15px;font-weight:600;padding:4px 14px;border-radius:8px;margin-bottom:8px;}
   .prev-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line);font-size:12.5px;}
   .prev-row:last-child{border-bottom:none;}
@@ -1522,11 +1524,32 @@ window.BOARD_DATA = __DATA__;
       '<div class="temp-bar"><div class="temp-track"><div class="temp-fill" style="width:' + temp + '%"></div><div class="temp-marker" style="left:' + temp + '%"></div></div><div class="temp-labels"><span>冰点</span><span>温和 ' + temp + '</span><span>过热</span></div></div>' +
       '<div class="risk-line"><span>3点</span><span>长跌</span><span>退潮</span><span style="color:' + (s.tag_cls === "good" ? "var(--up)" : (s.tag_cls === "danger" ? "var(--down)" : "var(--ink2)")) + ';font-weight:600;">● ' + s.tag + '</span></div>';
     var prevHtml = '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ink2);">昨日涨停表现</div>';
+    var sq = data.sealq;
+    if (sq && sq.gap) {
+      prevHtml += '<div class="sq-gap' + (sq.gap.type === "break" ? " sq-break" : "") + '">' +
+        (sq.gap.type === "break" ? "梯队断层" : "断板预警") + ' · ' + esc(sq.gap.txt) +
+        (sq.gap.names ? '<span style="color:var(--ink3)">（' + esc(sq.gap.names) + '）</span>' : '') + '</div>';
+    }
     if (prev && prev.jn_list && prev.jn_list.length) {
       prev.jn_list.slice(0, 4).forEach(function (r) {
         prevHtml += '<div class="prev-row"><span>' + esc(r["名称"]) + '</span><span class="money-in">+' + Number(r["涨跌幅"]).toFixed(2) + '%</span></div>';
       });
     } else prevHtml += '<div class="empty" style="padding:14px;">无昨日数据</div>';
+    if (sq) {
+      if (sq.refeng !== null && sq.refeng !== undefined) {
+        prevHtml += '<div class="prev-row" style="margin-top:6px;"><span>昨日炸板·今日回封（' + sq.refeng_n + '只）</span>' +
+          '<span class="' + (sq.refeng >= 40 ? "money-in" : "money-out") + '">' + sq.refeng + '%</span></div>';
+      }
+      var fundRows = '';
+      sq.funds.forEach(function (fd) {
+        if (fd.cur === null && fd.prev === null) return;
+        var dd = (fd.cur !== null && fd.prev !== null && fd.prev > 0) ? Math.round((fd.cur / fd.prev - 1) * 100) : null;
+        fundRows += '<div class="prev-row"><span>' + fd.lb + '板</span><span>' +
+          (fd.cur === null ? "-" : fd.cur) + ' / ' + (fd.prev === null ? "-" : fd.prev) + '亿' +
+          (dd !== null ? ' <b class="' + (dd >= 0 ? "money-in" : "money-out") + '">' + (dd >= 0 ? "+" : "") + dd + '%</b>' : '') + '</span></div>';
+      });
+      if (fundRows) prevHtml += '<div style="font-size:11px;color:var(--ink3);margin:8px 0 2px;">封板资金·亿（今/昨）</div>' + fundRows;
+    }
     document.getElementById("side-prev").innerHTML = prevHtml;
   }
 

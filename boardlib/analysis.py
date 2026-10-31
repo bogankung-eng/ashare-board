@@ -1636,6 +1636,45 @@ def write_history(data, out_dirs=None):
     return trimmed
 
 
+def analyze_seal_quality(days, dates):
+    """P13 接力质量：梯队断层 + 昨日炸板回封率 + 分板位封板资金衰减。
+    数据全在库（涨停池/炸板池），纯计算不触网。"""
+    if len(dates) < 2:
+        return None
+    d, pd_ = dates[-1], dates[-2]
+    cur_zt = days[d]["pools"]["zt"]
+    prev_zt = days[pd_]["pools"]["zt"]
+    prev_zb = days[pd_]["pools"]["zb"]
+    cur_codes = {r.get("代码") for r in cur_zt}
+    # ① 梯队断层：昨日最高板 ≥3 板时，今日高度塌落 ≥2 级 = 确认断层；空间板个股今日全断板 = 预警
+    prev_max = max((int(r.get("连板数") or 0) for r in prev_zt), default=0)
+    cur_max = max((int(r.get("连板数") or 0) for r in cur_zt), default=0)
+    prev_top = [r for r in prev_zt if int(r.get("连板数") or 0) >= prev_max and prev_max >= 3]
+    gap = None
+    if prev_max >= 3 and cur_max <= prev_max - 2:
+        gap = {"type": "break", "txt": f"高度断层 {prev_max}板→{cur_max}板",
+               "names": "、".join(str(r.get("名称")) for r in prev_top[:2])}
+    elif prev_top and all(r.get("代码") not in cur_codes for r in prev_top):
+        gap = {"type": "watch", "txt": f"{prev_max}板空间板今日断板",
+               "names": "、".join(str(r.get("名称")) for r in prev_top[:2])}
+    # ② 昨日炸板股今日回封率
+    refeng = (round(len([r for r in prev_zb if r.get("代码") in cur_codes]) / len(prev_zb) * 100, 1)
+              if prev_zb else None)
+    # ③ 分板位平均封板资金（亿）今昨对比
+    def fund_by(lbs, pools):
+        out = {}
+        for lb in lbs:
+            vals = [float(r.get("封板资金") or 0) for r in pools
+                    if int(r.get("连板数") or 0) == lb]
+            out[lb] = round(sum(vals) / len(vals) / 1e8, 2) if vals else None
+        return out
+    lbs = sorted({1, 2, 3} | ({prev_max} if prev_max >= 4 else set()))
+    cf, pf = fund_by(lbs, cur_zt), fund_by(lbs, prev_zt)
+    funds = [{"lb": lb, "cur": cf.get(lb), "prev": pf.get(lb)} for lb in lbs]
+    return {"gap": gap, "refeng": refeng, "refeng_n": len(prev_zb),
+            "funds": funds, "cur_max": cur_max, "prev_max": prev_max}
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -1696,9 +1735,10 @@ def build(dates):
     timeline = {"day": analyze_day_timeline(days, dates),
                 "week": analyze_period_timeline(days, dates, 5),
                 "month": analyze_period_timeline(days, dates, 22)}
+    sealq = analyze_seal_quality(days, dates)
     conn.close()
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
             "lowpos": lowpos, "screener": screener, "news": news,
             "promotion": promotion, "newsMap": news_map,
             "nameplay": nameplay, "focus": focus, "themelib": themelib,
-            "unlock": unlock, "timeline": timeline}
+            "unlock": unlock, "timeline": timeline, "sealq": sealq}
