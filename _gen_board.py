@@ -3610,6 +3610,14 @@ def main():
 
     data = build(dates)
     html = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False))
+    # 供应链安全：gsap 内联（CDN 被墙时页面动画失效/白屏风险），本地 assets 优先，缺失时回退 CDN
+    gsap_path = os.path.join(BASE, "assets", "gsap.min.js")
+    if os.path.exists(gsap_path):
+        gsap_src = "<script>" + open(gsap_path, encoding="utf-8").read() + "</script>"
+    else:
+        gsap_src = '<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>'
+        print("[WARN] assets/gsap.min.js 缺失，回退 CDN")
+    html = html.replace('<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>', gsap_src)
     with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"[OK] 看板已生成 -> {OUT}（{len(dates)} 个交易日: {dates}）")

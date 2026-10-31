@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import json
 import time
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -44,8 +45,21 @@ def get_token():
     return None
 
 
-def push_with_retry(branch="main", attempts=15, interval=60, timeout=60):
-    """断网友好：每次 push 强制 timeout（避免无限挂起），失败后循环重试。
+def write_status(push_rc, attempts_used, note=""):
+    """运行状态落盘：连续失败告警的判断依据（连续2天 push_rc!=0 时人工介入）。"""
+    import datetime as _dt
+    st = {"date": _dt.date.today().isoformat(),
+          "time": _dt.datetime.now().strftime("%H:%M:%S"),
+          "push_rc": push_rc, "push_attempts": attempts_used, "note": note}
+    try:
+        json.dump(st, open(os.path.join(BASE, "data", "_daily_status.json"), "w",
+                           encoding="utf-8"), ensure_ascii=False, indent=1)
+    except Exception as e:
+        print("WARN 状态文件写入失败:", e)
+
+
+def push_with_retry(branch="main", attempts=3, timeout=60):
+    """断网友好：每次 push 强制 timeout（避免无限挂起），指数退避重试。
 
     根因修复：原 subprocess.run 无 timeout，github 不可达时 git 挂死、
     python 进程也随之永久阻塞在 subprocess 管道上（连续多日人工救场）。
@@ -54,10 +68,14 @@ def push_with_retry(branch="main", attempts=15, interval=60, timeout=60):
     2026-09-26 二次修复：不再把 token 硬嵌 URL——token 失效时 GitHub 返回 401，
     git 会回退询问凭证助手，GCM 弹出「Connect to GitHub」登录窗打扰桌面用户。
     改为走 origin + GCM 凭证助手（gho_ OAuth 自动续期），并设
-    GCM_INTERACTIVE=never / GIT_TERMINAL_PROMPT=0，凭证缺失时快速失败、绝不弹窗。"""
+    GCM_INTERACTIVE=never / GIT_TERMINAL_PROMPT=0，凭证缺失时快速失败、绝不弹窗。
+
+    2026-10-31 三次修复：原 15次×60s 最坏挂 15 分钟（10/27 实测 25m35s 全程
+    黑箱）。改为 3 次×指数退避（30s/90s/240s），最坏 7 分钟内出结果。"""
     env = dict(os.environ)
     env["GCM_INTERACTIVE"] = "never"
     env["GIT_TERMINAL_PROMPT"] = "0"
+    backoffs = [30, 90, 240]
     for i in range(1, attempts + 1):
         try:
             r = subprocess.run(["git", "push", "origin", branch], cwd=BASE,
@@ -69,13 +87,16 @@ def push_with_retry(branch="main", attempts=15, interval=60, timeout=60):
                 print(out[-400:])
             if r.returncode == 0:
                 print(f"OK push 成功（第 {i} 次）")
+                write_status(0, i)
                 return 0
             print(f"FAIL push（第 {i}/{attempts} 次）: {err[-200:]}")
         except subprocess.TimeoutExpired:
             print(f"FAIL push 超时（第 {i}/{attempts} 次，{timeout}s 无响应）")
         if i < attempts:
-            print(f"  {interval}s 后重试...")
-            time.sleep(interval)
+            wait = backoffs[min(i - 1, len(backoffs) - 1)]
+            print(f"  {wait}s 后重试（指数退避）...")
+            time.sleep(wait)
+    write_status(1, attempts, "push 重试耗尽，本地 commit 未丢，可稍后手动 push")
     return 1
 
 
