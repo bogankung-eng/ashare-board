@@ -19,7 +19,10 @@ import threading
 import time
 from datetime import date, datetime, timedelta
 
-import akshare as ak
+try:
+    import akshare as ak
+except ImportError:  # P19: --rss-only 只刷新消息面，不该被行情库的安装状态卡住
+    ak = None
 
 # 防第三方行情接口无响应挂起（requests 默认无限等待 → 脚本卡死）
 # 2026-08-26 修复：新浪/东财接口偶发"连接成功但无响应"，此前曾卡死 18+ 分钟
@@ -776,6 +779,10 @@ def main():
     conn = get_conn()
     if args.rss_only:
         fetch_radar(conn, date_str, now)
+        conn.close()
+        return
+    if ak is None:
+        print("[错误] 缺少 akshare，无法采集盘后行情；仅 --rss-only 可独立运行")
         conn.close()
         return
 
