@@ -510,8 +510,34 @@ TEMPLATE = r"""<!DOCTYPE html>
   .more-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .more-n{display:inline-block;min-width:18px;padding:0 5px;border-radius:4px;background:var(--surface);color:var(--ink3);font-family:var(--font-mono);font-size:10px;text-align:center;}
   .more-ar{color:var(--ink3);font-size:12px;}
+  #datebar{align-items:center;}
+  .more-inline{width:auto;align-self:center;margin:0;padding:3px 10px;white-space:nowrap;}
   .desk-grid .col-nav::-webkit-scrollbar,.desk-grid .col-side::-webkit-scrollbar,.tev-wrap::-webkit-scrollbar{width:6px;}
   .desk-grid .col-nav::-webkit-scrollbar-thumb,.desk-grid .col-side::-webkit-scrollbar-thumb,.tev-wrap::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:3px;}
+
+  /* 窄屏回调：必须排在规范层之后，否则被同优先级规则覆盖 */
+  @media (max-width:760px){
+    .wrap{padding:12px 10px 40px;}
+    .topbar{align-items:stretch;padding:12px;gap:10px;}
+    .topbar > div{min-width:0;}
+    .datebar{width:100%;max-width:100%;gap:5px;}
+    .datebtn{padding:4px 9px;font-size:11px;}
+    .more-inline{font-size:10.5px;padding:3px 8px;}
+    .tabs{width:100%;}
+    .tabs label{flex:1;padding:8px 4px;font-size:12px;white-space:nowrap;}
+    .card,.view .card{padding:13px 12px;overflow-x:auto;}
+    .toolbar{flex-wrap:wrap;gap:8px;}
+    .tb-tip{font-size:10.5px;}
+    .desk-grid{gap:12px;}
+    .desk-grid .col{gap:12px;}
+    .scr-tabs{flex-wrap:wrap;}
+    .scr-btn{flex:1;padding:5px 6px;font-size:11px;white-space:nowrap;}
+    .np-cards,.foc-grid,.theme-grid,.idx-grid,.sub-grid,.two-col{grid-template-columns:1fr;}
+    .metric-grid,.core-grid{grid-template-columns:repeat(3,1fr);}
+    .foc-grid{gap:8px;}
+    .tlp-sub{flex-direction:column;gap:6px;}
+    .tlp-subname{min-width:0;}
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
@@ -834,7 +860,8 @@ window.BOARD_DATA = __DATA__;
     ["#value-card table", "tr", 12],
     ["#value-card .theme-grid", ":scope > .theme-card", 6],
     ["#ind-tags", ":scope > .ind-tag", 12],
-    ["#side-prev", ":scope > .prev-row", 6]
+    ["#side-prev", ":scope > .prev-row", 6],
+    ["#datebar", ":scope > .datebtn", 14]
   ];
   function applyFolds(root) {
     var base = root || document;
@@ -876,7 +903,12 @@ window.BOARD_DATA = __DATA__;
         };
         state.btn = btn;
         box._foldState = state;
-        if (box.parentNode) box.parentNode.insertBefore(btn, box.nextSibling);
+        if (box.id === "datebar") {
+          btn.className = "more-btn more-inline";
+          box.appendChild(btn);
+        } else if (box.parentNode) {
+          box.parentNode.insertBefore(btn, box.nextSibling);
+        }
       });
     });
   }
@@ -1222,9 +1254,10 @@ window.BOARD_DATA = __DATA__;
     var box = document.getElementById("trend-pool");
     if (!list.length) { box.innerHTML = '<div class="empty">无符合条件的趋势候选</div>'; return; }
     var up = list.filter(function (r) { return r.bull; }).length;
-    html = '<div style="color:var(--ink2);font-size:12.5px;margin-bottom:10px;">候选池 ' + list.length + ' 只 · 均线多头 ' + up + ' 只 · 按强度评分排序</div>';
+    var tRows = list.slice(0, 120);
+    html = '<div style="color:var(--ink2);font-size:12.5px;margin-bottom:10px;">候选池 ' + list.length + ' 只 · 均线多头 ' + up + ' 只 · 按强度评分排序 · 默认载入前 ' + tRows.length + ' 只（可用上方筛选缩小范围）</div>';
     html += '<table><tr><th>代码</th><th>名称</th><th>现价</th><th>20日涨幅</th><th>RS(超额)</th><th>距52周高</th><th>MA20</th><th>MA60</th><th>信号</th><th>强度</th></tr>';
-    list.forEach(function (r) {
+    tRows.forEach(function (r) {
       var sigs = '';
       if (r.breakout) sigs += '<span class="sig-tag sig-bk">突破</span>';
       if (r.pullback) sigs += '<span class="sig-tag sig-pb">回踩</span>';
@@ -1888,7 +1921,8 @@ window.BOARD_DATA = __DATA__;
       return;
     }
     html += '<div class="tl">';
-    shown.forEach(function (n) {
+    var nRows = shown.slice(0, 120);
+    nRows.forEach(function (n) {
       var cls = n.sentiment === "利好" ? "pos" : (n.sentiment === "利空" ? "neg" : "neu");
       var tagTxt = n.sentiment === "中性" ? "中性观察" : n.sentiment;
       var why = n.reason ? ("关键词命中：" + esc(n.reason)) : "无明确多空关键词，判定为中性";
@@ -1906,7 +1940,7 @@ window.BOARD_DATA = __DATA__;
         '</div>';
     });
     html += '</div>';
-    html += '<div class="cycle-hint">结论由关键词规则自动判定（利好/利空词表），仅供参考；结构化公告（问询函、股东减持、股权质押等）可通过 news_manual.json 人工补充</div>';
+    html += '<div class="cycle-hint">结论由关键词规则自动判定（利好/利空词表），仅供参考；结构化公告（问询函、股东减持、股权质押等）可通过 news_manual.json 人工补充 · 本分类共 ' + shown.length + ' 条，默认载入最近 ' + nRows.length + ' 条</div>';
     box.innerHTML = html;
     fx(function (g) { g.from(box.querySelectorAll(".tl-item"), { autoAlpha: 0, y: 10, duration: 0.35, stagger: 0.03, ease: "power2.out", clearProps: "all" }); });
   }
