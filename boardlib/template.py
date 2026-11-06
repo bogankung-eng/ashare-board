@@ -410,7 +410,9 @@ TEMPLATE = r"""<!DOCTYPE html>
      P16 统一规范层 · 间距 / 对齐 / 层级 / 留白 / 折叠
      同一套参数贯穿全站；hover 一律「文字变亮、底色微变」，不再变白
      ========================================================== */
-  .panel-trend,.panel-value{display:flex;flex-direction:column;gap:var(--sp);}
+  /* 只给卡片间距，绝不设 display —— 否则覆盖 .panel{display:none} 造成跨周期面板泄漏 */
+  .panel-trend .card + .card,.panel-value .card + .card{margin-top:var(--sp);}
+  .sub-grid .sub-box:last-child:nth-child(odd){grid-column:1/-1;}
   .topbar{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;margin-bottom:var(--sp);gap:12px;box-shadow:none;}
   h1{font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-.01em;}
   .sub{color:var(--ink3);font-size:11.5px;margin-top:2px;}
@@ -428,7 +430,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   .desk-grid .col{gap:var(--sp);min-width:0;}
   @media (min-width:1024px){
     .desk-grid{grid-template-columns:208px minmax(0,1.4fr) minmax(0,1fr);}
-    .desk-grid .col-nav,.desk-grid .col-side{top:20px;max-height:calc(100vh - 40px);padding-right:2px;}
+    /* 保留列内可滚动（超高列底部可达），但滚动条完全隐藏 */
+    .desk-grid .col-nav,.desk-grid .col-side{top:20px;max-height:calc(100vh - 40px);overflow-y:auto;padding-right:0;}
   }
   .card,.view .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:var(--pad);margin-bottom:0;box-shadow:none;}
   .nav-card{padding:14px 0 14px;}
@@ -505,15 +508,15 @@ TEMPLATE = r"""<!DOCTYPE html>
   .sec-dot{display:inline-block;width:5px;height:5px;border-radius:2px;background:var(--accent);margin-right:7px;vertical-align:2px;}
   /* 模块折叠：默认收起 / 展开后与原状态完全一致 */
   .fold-hidden{display:none !important;}
-  .more-btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:10px;padding:7px 0;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);color:var(--ink2);font-family:inherit;font-size:11px;letter-spacing:.02em;cursor:pointer;transition:background .2s ease,border-color .2s ease,color .2s ease;}
+  .more-btn{display:flex;align-items:center;justify-content:center;gap:5px;width:fit-content;min-width:0;margin:8px 0 0;padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink3);font-family:inherit;font-size:10.5px;line-height:1.6;letter-spacing:.02em;white-space:nowrap;cursor:pointer;grid-column:1/-1;justify-self:start;flex:0 0 auto;transition:color .2s ease,border-color .2s ease,background .2s ease;}
   .more-btn:hover{background:var(--hover);border-color:var(--line-2);color:var(--ink);}
   .more-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
-  .more-n{display:inline-block;min-width:18px;padding:0 5px;border-radius:4px;background:var(--surface);color:var(--ink3);font-family:var(--font-mono);font-size:10px;text-align:center;}
-  .more-ar{color:var(--ink3);font-size:12px;}
+  .more-n{font-family:var(--font-mono);font-size:10px;color:var(--accent);font-weight:600;}
+  .more-ar{color:var(--ink3);font-size:11px;}
   #datebar{align-items:center;}
-  .more-inline{width:auto;align-self:center;margin:0;padding:3px 10px;white-space:nowrap;}
-  .desk-grid .col-nav::-webkit-scrollbar,.desk-grid .col-side::-webkit-scrollbar,.tev-wrap::-webkit-scrollbar{width:6px;}
-  .desk-grid .col-nav::-webkit-scrollbar-thumb,.desk-grid .col-side::-webkit-scrollbar-thumb,.tev-wrap::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:3px;}
+  .more-inline{align-self:center;margin:0;padding:3px 10px;}
+  .desk-grid .col-nav,.desk-grid .col-side,.tev-wrap{scrollbar-width:none;-ms-overflow-style:none;}
+  .desk-grid .col-nav::-webkit-scrollbar,.desk-grid .col-side::-webkit-scrollbar,.tev-wrap::-webkit-scrollbar{display:none;width:0;height:0;}
 
   /* 窄屏回调：必须排在规范层之后，否则被同优先级规则覆盖 */
   @media (max-width:760px){
@@ -834,34 +837,34 @@ window.BOARD_DATA = __DATA__;
      规则 = [容器选择器, 直接子项选择器, 上限]
      用 :scope > 限定直接子项，天然避免嵌套容器互相吞并；表头行自动跳过。 */
   var FOLD_RULES = [
-    ["#stage-body", ":scope > .grp", 6],
-    ["#stage-body .grp > table", "tr", 8],
-    ["#promo-body table", "tr", 8],
-    ["#ext-card .mini-list", ":scope > .row", 6],
-    ["#ext-card .sub-box", ":scope > .lhb-row", 6],
-    ["#unlock-body table", "tr", 8],
-    ["#alert-body table", "tr", 10],
-    ["#theme-body .grp", ":scope > .theme-row, :scope > .dragon-row", 8],
-    ["#scr-body table", "tr", 12],
-    ["#news-body .tl", ":scope > .tl-item", 10],
-    ["#focus-body .foc-grid", ":scope > .foc-card", 6],
-    ["#np-body .np-cards", ":scope > .np-card", 6],
-    ["#np-body .np-mems", ":scope > .np-mem", 10],
-    ["#tl-body", ":scope > .tlp-group", 3],
-    ["#tl-body .tlp-group", ":scope > .tlp-sub", 6],
-    ["#tl-body .tlp-chips", ":scope > .chip", 8],
-    ["#cu-body", ":scope > .cu-row", 6],
-    ["#tlp-body .tlp-sec", ":scope > .tlp-node, :scope > .tlp-pnode", 4],
-    ["#tlp-body .tlp-inds", ":scope > .chip", 12],
-    ["#tlp-body .tev-wrap", ":scope > .tev", 20],
-    ["#tlp-body .tlp-days", ":scope > .tlp-day", 10],
-    ["#tlp-body .tlp-matrix table", "tr", 10],
-    ["#trend-pool table", "tr", 12],
-    ["#value-card table", "tr", 12],
-    ["#value-card .theme-grid", ":scope > .theme-card", 6],
-    ["#ind-tags", ":scope > .ind-tag", 12],
-    ["#side-prev", ":scope > .prev-row", 6],
-    ["#datebar", ":scope > .datebtn", 14]
+    ["#stage-body", ":scope > .grp", 8, "in"],
+    ["#stage-body .grp > table", "tr", 12, "out"],
+    ["#promo-body table", "tr", 12, "out"],
+    ["#ext-card .mini-list", ":scope > .row", 10, "in"],
+    ["#ext-card .sub-box", ":scope > .lhb-row", 10, "in"],
+    ["#unlock-body table", "tr", 12, "out"],
+    ["#alert-body table", "tr", 15, "out"],
+    ["#theme-body .grp", ":scope > .theme-row, :scope > .dragon-row", 12, "in"],
+    ["#scr-body table", "tr", 20, "out"],
+    ["#news-body .tl", ":scope > .tl-item", 15, "in"],
+    ["#focus-body .foc-grid", ":scope > .foc-card", 8, "in"],
+    ["#np-body .np-cards", ":scope > .np-card", 8, "in"],
+    ["#np-body .np-mems", ":scope > .np-mem", 12, "in"],
+    ["#tl-body", ":scope > .tlp-group", 3, "in"],
+    ["#tl-body .tlp-group", ":scope > .tlp-sub", 8, "in"],
+    ["#tl-body .tlp-chips", ":scope > .chip", 12, "in"],
+    ["#cu-body", ":scope > .cu-row", 8, "in"],
+    ["#tlp-body .tlp-sec", ":scope > .tlp-node, :scope > .tlp-pnode", 6, "in"],
+    ["#tlp-body .tlp-inds", ":scope > .chip", 16, "in"],
+    ["#tlp-body .tev-wrap", ":scope > .tev", 30, "out"],
+    ["#tlp-body .tlp-days", ":scope > .tlp-day", 12, "out"],
+    ["#tlp-body .tlp-matrix table", "tr", 12, "out"],
+    ["#trend-pool table", "tr", 20, "out"],
+    ["#value-card table", "tr", 20, "out"],
+    ["#value-card .theme-grid", ":scope > .theme-card", 8, "in"],
+    ["#ind-tags", ":scope > .ind-tag", 16, "in"],
+    ["#side-prev", ":scope > .prev-row", 10, "in"],
+    ["#datebar", ":scope > .datebtn", 14, "inline"]
   ];
   function applyFolds(root) {
     var base = root || document;
@@ -903,11 +906,15 @@ window.BOARD_DATA = __DATA__;
         };
         state.btn = btn;
         box._foldState = state;
-        if (box.id === "datebar") {
+        var mode = rule[3] || "in";
+        if (mode === "inline") {
           btn.className = "more-btn more-inline";
           box.appendChild(btn);
-        } else if (box.parentNode) {
+        } else if (mode === "out" && box.parentNode) {
           box.parentNode.insertBefore(btn, box.nextSibling);
+        } else {
+          /* 放进容器内部：按钮不再成为外层 grid 的新列，杜绝整列空白 */
+          box.appendChild(btn);
         }
       });
     });
