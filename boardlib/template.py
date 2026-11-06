@@ -602,6 +602,46 @@ TEMPLATE = r"""<!DOCTYPE html>
     .sd-body{padding:14px 14px 24px;}
     .sd-kv{grid-template-columns:repeat(2,1fr);}
   }
+  /* ===== P19 资讯雷达：独立命名空间，不触碰 P16/P17/P18 既有规则 ===== */
+  .rd-status{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;margin-bottom:12px;}
+  .rd-stat{flex:1 1 90px;background:var(--surface-2);padding:9px 11px;}
+  .rd-stat .v{display:block;font-family:var(--font-mono);font-size:15px;color:var(--ink);line-height:1.2;}
+  .rd-stat .k{display:block;font-size:10px;color:var(--ink3);margin-top:3px;}
+  .rd-when{flex:1 1 100%;background:var(--surface-2);padding:6px 11px;font-size:10px;color:var(--ink3);border-top:1px solid var(--line);}
+  .rd-filter-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
+  .rd-filter-sub{align-items:center;margin-bottom:12px;}
+  .rd-chip{padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink2);font:inherit;font-size:11px;line-height:1.6;white-space:nowrap;cursor:pointer;transition:color .2s ease,border-color .2s ease,background .2s ease;}
+  .rd-chip:hover{color:var(--ink);border-color:var(--line-2);background:var(--hover);}
+  .rd-chip.active{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-soft);font-weight:600;}
+  .rd-n{font-family:var(--font-mono);font-size:10px;opacity:.7;margin-left:3px;}
+  .rd-linkbtn{padding:3px 2px;border:0;background:transparent;color:var(--ink3);font:inherit;font-size:10.5px;cursor:pointer;border-bottom:1px dashed var(--line-2);}
+  .rd-linkbtn:hover{color:var(--accent-strong);}
+  .rd-srcs{margin:0 0 12px;padding:10px 11px;border:1px dashed var(--line-2);border-radius:var(--r-sm);}
+  .rd-srcs-t{font-size:10.5px;color:var(--ink3);margin-bottom:8px;line-height:1.7;}
+  .rd-src-grid{display:flex;flex-wrap:wrap;gap:5px;}
+  .rd-src-pill{padding:1px 7px;border:1px solid var(--line);border-radius:999px;font-size:10px;color:var(--ink2);white-space:nowrap;}
+  .rd-src-pill.bad{border-style:dashed;color:var(--ink3);}
+  .rd-divider{width:1px;height:14px;background:var(--line-2);margin:0 3px;}
+  #radar-body{border-left:1px solid var(--line);padding-left:16px;}
+  .rd-item{position:relative;padding:0 0 12px 0;margin-bottom:11px;border-bottom:1px dashed var(--line);}
+  .rd-item:last-child{border-bottom:none;margin-bottom:0;}
+  .rd-item::before{content:"";position:absolute;left:-20px;top:6px;width:6px;height:6px;border-radius:50%;background:var(--accent);}
+  .rd-meta{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-bottom:5px;font-size:10.5px;color:var(--ink3);}
+  .rd-time{font-family:var(--font-mono);}
+  .rd-track{padding:1px 7px;border:1px solid var(--line);border-radius:999px;color:var(--ink2);}
+  .rd-src{color:var(--ink2);}
+  .rd-lang{padding:0 5px;border-radius:3px;background:var(--accent-soft);color:var(--accent);font-size:9.5px;}
+  .rd-lang.en{background:transparent;color:var(--ink3);border:1px solid var(--line);}
+  .rd-title{display:block;font-size:13px;font-weight:600;color:var(--ink);text-decoration:none;line-height:1.55;}
+  .rd-title:hover{color:var(--accent-strong);}
+  .rd-sum{font-size:11.5px;color:var(--ink2);line-height:1.7;margin-top:4px;}
+  .rd-hint{margin-top:10px;font-size:10.5px;color:var(--ink3);line-height:1.7;}
+  @media (max-width:760px){
+    .rd-stat{flex:1 1 44%;}
+    .rd-title{font-size:12.5px;}
+    #radar-body{padding-left:13px;}
+    .rd-item::before{left:-17px;}
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
@@ -742,6 +782,18 @@ TEMPLATE = r"""<!DOCTYPE html>
             <div class="tb-tip">按发布时间倒序 · 关键词红字高亮</div>
           </div>
           <div id="news-body"></div>
+        </div>
+      </div>
+      <div class="view" id="view-radar" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">资讯雷达 <span class="cnt" id="radar-cnt"></span></div>
+            <div class="tb-tip">12 赛道 · 106 个 RSS 源 · 按发布时间倒序</div>
+          </div>
+          <div id="radar-status"></div>
+          <div id="radar-srcs" style="display:none"></div>
+          <div id="radar-filters"></div>
+          <div id="radar-body"></div>
         </div>
       </div>
       <div class="view" id="view-focus" style="display:none">
@@ -908,6 +960,7 @@ window.BOARD_DATA = __DATA__;
     ["#theme-body .grp", ":scope > .theme-row, :scope > .dragon-row", 12, "in"],
     ["#scr-body table", "tr", 20, "out"],
     ["#news-body .tl", ":scope > .tl-item", 15, "in"],
+    ["#radar-body", ":scope > .rd-item", 20, "in"],
     ["#focus-body .foc-grid", ":scope > .foc-card", 8, "in"],
     ["#np-body .np-cards", ":scope > .np-card", 8, "in"],
     ["#np-body .np-mems", ":scope > .np-mem", 12, "in"],
@@ -1619,7 +1672,7 @@ window.BOARD_DATA = __DATA__;
     document.querySelectorAll(".mod-btn").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-mod") === name);
     });
-    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点" };
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点", radar: "消息面 · 12 赛道" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
     if (window.history) { try { history.replaceState(null, "", "#" + name); } catch (e) {} }
@@ -1627,10 +1680,10 @@ window.BOARD_DATA = __DATA__;
   }
   window.showView = showView;
 
-  var NAV_META = { stage: ["涨停梯队", "□"], alert: ["异动预警", "△"], cycle: ["情绪周期", "∿"], theme: ["主线龙头", "★"], timeline: ["时间线", "⌛"], screener: ["选股器", "◎"], news: ["公告资讯", "❐"], focus: ["聚焦挖掘", "◉"] };
+  var NAV_META = { stage: ["涨停梯队", "□"], alert: ["异动预警", "△"], cycle: ["情绪周期", "∿"], theme: ["主线龙头", "★"], timeline: ["时间线", "⌛"], screener: ["选股器", "◎"], news: ["公告资讯", "❐"], focus: ["聚焦挖掘", "◉"], radar: ["资讯雷达", "◈"] };
   var NAV_GROUPS = [
     { name: "短线复盘", items: ["stage", "alert", "cycle", "theme", "timeline"] },
-    { name: "工具", items: ["screener", "news", "focus"] },
+    { name: "工具", items: ["screener", "news", "focus", "radar"] },
   ];
   window.toggleNavGroup = function (id) {
     var g = document.getElementById(id);
@@ -1969,6 +2022,93 @@ window.BOARD_DATA = __DATA__;
   }
   window.setNewsCat = function (c) { newsCat = c; renderNews(); applyFolds(document); };
 
+  /* ===== P19 资讯雷达：赛道 / 语言筛选 + 源覆盖状态 ===== */
+  var radarTrack = "all", radarLang = "all", radarSrcOpen = false;
+  window.setRadarTrack = function (t) { radarTrack = t; renderRadar(); applyFolds(document); };
+  window.setRadarLang = function (l) { radarLang = l; renderRadar(); applyFolds(document); };
+  window.toggleRadarSources = function () { radarSrcOpen = !radarSrcOpen; renderRadar(); applyFolds(document); };
+
+  function renderRadar() {
+    if (curView !== "radar") return;
+    var box = document.getElementById("radar-body");
+    if (!box) return;
+    var rd = data.radar || { items: [], tracks: [], status: [], ok: 0, total: 0, zh: 0, updated: "" };
+    var items = rd.items || [], tracks = rd.tracks || [], status = rd.status || [];
+
+    /* 覆盖状态条：来源 / 时点 / 覆盖状态，一眼可核查消息面是否可信 */
+    var st = document.getElementById("radar-status");
+    if (st) {
+      var upd = String(rd.updated || "");
+      var updTxt = upd.length === 8 ? upd.slice(0, 4) + "-" + upd.slice(4, 6) + "-" + upd.slice(6, 8) : (upd || "未采集");
+      st.innerHTML = '<div class="rd-status">' +
+        '<div class="rd-stat"><span class="v">' + rd.ok + '/' + rd.total + '</span><span class="k">本轮可用源</span></div>' +
+        '<div class="rd-stat"><span class="v">' + tracks.length + '</span><span class="k">赛道</span></div>' +
+        '<div class="rd-stat"><span class="v">' + items.length + '</span><span class="k">消息条数</span></div>' +
+        '<div class="rd-stat"><span class="v">' + rd.zh + '</span><span class="k">中文</span></div>' +
+        '<div class="rd-when">更新 ' + esc(updTxt) + ' · 保留近 7 天 · 合规红线已过滤 · 全部为公开 RSS，不含预测市场/加密/博彩类内容</div>' +
+        '</div>';
+    }
+
+    /* 赛道 + 语言筛选 */
+    var cnt = {};
+    items.forEach(function (i) { cnt[i.track] = (cnt[i.track] || 0) + 1; });
+    var f = '<div class="rd-filter-row">';
+    f += '<button class="rd-chip' + (radarTrack === "all" ? " active" : "") + '" onclick="setRadarTrack(\'all\')">全部<span class="rd-n">' + items.length + '</span></button>';
+    tracks.forEach(function (t) {
+      if (!cnt[t.key]) return;
+      var short = String(t.name).split(" / ")[0];
+      f += '<button class="rd-chip' + (radarTrack === t.key ? " active" : "") + '" onclick="setRadarTrack(\'' + t.key + '\')">' + esc(short) + '<span class="rd-n">' + cnt[t.key] + '</span></button>';
+    });
+    f += '</div><div class="rd-filter-row rd-filter-sub">';
+    f += '<button class="rd-chip' + (radarLang === "all" ? " active" : "") + '" onclick="setRadarLang(\'all\')">全部语言</button>';
+    f += '<button class="rd-chip' + (radarLang === "zh" ? " active" : "") + '" onclick="setRadarLang(\'zh\')">仅中文源<span class="rd-n">' + rd.zh + '</span></button>';
+    f += '<span class="rd-divider"></span>';
+    f += '<button class="rd-linkbtn" id="radar-src-btn" onclick="toggleRadarSources()">' + (radarSrcOpen ? "收起源状态" : "查看源状态") + '</button>';
+    f += '</div>';
+    var fbox = document.getElementById("radar-filters");
+    if (fbox) fbox.innerHTML = f;
+
+    /* 源状态：默认收起，只列失败源，title 带原因，便于核查覆盖缺口 */
+    var sbox = document.getElementById("radar-srcs");
+    if (sbox) {
+      var bad = status.filter(function (s) { return !s.ok; });
+      var sh = '<div class="rd-srcs-t">本轮 ' + rd.ok + '/' + rd.total + ' 个源正常返回，以下 ' + bad.length + ' 个源无数据（403 / 超时 / 证书 / 反爬）；鼠标悬停可看原因。失败源不影响其它赛道。</div><div class="rd-src-grid">';
+      bad.forEach(function (s) {
+        sh += '<span class="rd-src-pill bad" title="' + esc(s.source + " · " + (s.err || "无条目")).replace(/"/g, "&quot;") + '">' + esc(s.source) + '</span>';
+      });
+      sbox.innerHTML = sh + '</div>';
+      sbox.style.display = radarSrcOpen ? "" : "none";
+    }
+
+    var shown = items.filter(function (i) {
+      return (radarTrack === "all" || i.track === radarTrack) &&
+             (radarLang === "all" || i.lang === "zh");
+    });
+    var cntEl = document.getElementById("radar-cnt");
+    if (cntEl) cntEl.textContent = shown.length + " 条";
+    if (!shown.length) {
+      box.innerHTML = '<div class="empty">该筛选下暂无消息，试试切换赛道或语言</div>';
+      return;
+    }
+    var html = "";
+    shown.slice(0, 240).forEach(function (i) {
+      var title = i.link
+        ? '<a class="rd-title" href="' + esc(i.link).replace(/"/g, "&quot;") + '" target="_blank" rel="noopener">' + esc(i.title) + '</a>'
+        : '<span class="rd-title">' + esc(i.title) + '</span>';
+      html += '<div class="rd-item">' +
+        '<div class="rd-meta">' +
+          '<span class="rd-time">' + esc(String(i.pub_time).slice(5, 16)) + '</span>' +
+          '<span class="rd-track">' + esc(i.track_name) + '</span>' +
+          '<span class="rd-src">' + esc(i.source) + '</span>' +
+          '<span class="rd-lang ' + (i.lang === "zh" ? "" : "en") + '">' + (i.lang === "zh" ? "中" : "EN") + '</span>' +
+        '</div>' + title +
+        (i.summary ? '<div class="rd-sum">' + esc(String(i.summary).slice(0, 150)) + '</div>' : '') +
+        '</div>';
+    });
+    html += '<div class="rd-hint">源清单移植自 Vibe-Astock 的 106 个策展 RSS（12 赛道），每日 21:30 随看板自动刷新；点标题直达原文 · Ctrl/⌘+点击可在新标签保留 · 内容仅作消息面线索，不构成投资建议</div>';
+    box.innerHTML = html;
+  }
+
   function renderNews() {
     if (curView !== "news") return;
     var box = document.getElementById("news-body");
@@ -2240,6 +2380,7 @@ window.BOARD_DATA = __DATA__;
     renderThemeView();
     renderScreener();
     renderNews();
+    renderRadar();
     renderFocus();
     renderTimeline();
     renderSidePanel();
@@ -2500,7 +2641,7 @@ window.BOARD_DATA = __DATA__;
   renderTrend();
   renderValue();
   var _h = (location.hash || "").slice(1);
-  var _views = ["stage", "alert", "cycle", "theme", "screener", "news", "focus", "timeline"];
+  var _views = ["stage", "alert", "cycle", "theme", "screener", "news", "focus", "timeline", "radar"];
   if (_h && _views.indexOf(_h) >= 0) { showView(_h); } else { renderAll(); }
 
   // ===== GSAP 动画层（仅首屏，判定已在顶部完成）=====

@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime
 
 from .config import BASE, DB, OUT, IDX
+from . import radar
 
 def analyze_lowpos(conn):
     """低位潜力股：位置低(距52周高回落≥25%) + 近期活跃(20日涨停/放量) + 基本面(ROE>0) + 题材热度
@@ -1118,6 +1119,36 @@ def load_news(conn, limit=200):
              "sentiment": r[6], "reason": r[7] or ""} for r in rows]
 
 
+def load_radar(conn, limit=240):
+    """P19 资讯雷达：消息面时间线 + 赛道清单 + 逐源覆盖状态。"""
+    empty = {"items": [], "tracks": [], "status": [], "updated": "",
+             "ok": 0, "total": 0, "zh": 0}
+    try:
+        tracks = radar.track_list()
+        rows = conn.execute(
+            "SELECT pub_time,title,summary,link,source,track,track_name,lang "
+            "FROM rss_news ORDER BY pub_time DESC LIMIT ?", (limit,)).fetchall()
+        items = [{"pub_time": r[0] or "", "title": r[1] or "", "summary": r[2] or "",
+                  "link": r[3] or "", "source": r[4] or "", "track": r[5] or "",
+                  "track_name": r[6] or "", "lang": r[7] or "en"} for r in rows]
+        last = conn.execute("SELECT MAX(date) FROM rss_status").fetchone()[0]
+        st_rows = conn.execute(
+            "SELECT source,track,track_name,ok,count,err,ms FROM rss_status WHERE date=?",
+            (last,)).fetchall() if last else []
+        status = [{"source": r[0] or "", "track": r[1] or "",
+                   "track_name": r[2] or "", "ok": int(r[3] or 0),
+                   "count": int(r[4] or 0), "err": r[5] or "", "ms": int(r[6] or 0)}
+                  for r in st_rows]
+    except Exception:  # 旧库无表 / 采集未跑：消息面为空不影响主看板
+        return empty
+    return {"items": items, "tracks": tracks, "status": status,
+            "updated": (last or ""),
+            "ok": sum(1 for s in status if s["ok"]),
+            "total": len(status),
+            "zh": sum(1 for i in items if i["lang"] == "zh")}
+
+
+
 def fetch_quotes(codes):
     """批量行情：code -> {name, pct}。腾讯单请求 → 新浪备源 → 当日缓存兜底。
     腾讯对同 IP 高频返回空 body（HTTP 200），故合并为一次请求并落缓存。"""
@@ -1821,6 +1852,7 @@ def build(dates):
     lowpos = analyze_lowpos(conn)
     screener = analyze_screener(conn, days, dates, trend, value)
     news = load_news(conn)
+    radar_data = load_radar(conn)
     promotion = analyze_promotion(days, dates)
     news_map = build_name_map(conn, dates)
     unlock = load_unlock(conn, dates[-1]) if dates else {"total": 0, "total_mv": 0, "days": [], "stocks": []}
@@ -1851,7 +1883,7 @@ def build(dates):
     catchup = analyze_catchup(days, dates)
     conn.close()
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
-            "lowpos": lowpos, "screener": screener, "news": news,
+            "lowpos": lowpos, "screener": screener, "news": news, "radar": radar_data,
             "promotion": promotion, "newsMap": news_map,
             "nameplay": nameplay, "focus": focus, "themelib": themelib,
             "unlock": unlock, "timeline": timeline, "sealq": sealq, "catchup": catchup}

@@ -17,7 +17,7 @@ import socket
 import sqlite3
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import akshare as ak
 
@@ -129,6 +129,17 @@ def get_conn():
         "link TEXT, source TEXT, category TEXT DEFAULT '其他', "
         "sentiment TEXT DEFAULT '中性', reason TEXT DEFAULT '')"
     )
+    # P19 资讯雷达（106 个纯 RSS 源 / 12 赛道）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS rss_news("
+        "id TEXT PRIMARY KEY, date TEXT, pub_time TEXT, title TEXT, summary TEXT, "
+        "link TEXT, source TEXT, track TEXT, track_name TEXT, lang TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS rss_status("
+        "date TEXT, source TEXT, track TEXT, track_name TEXT, ok INT, count INT, "
+        "err TEXT, ms INT, PRIMARY KEY(date, source))"
+    )
     return conn
 
 
@@ -226,6 +237,41 @@ def fetch_news(conn, date_str, now):
         "sentiment,reason) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
     conn.commit()
     print(f"[OK] 公告资讯 {len(rows)} 条", flush=True)
+
+
+def fetch_radar(conn, date_str, now):
+    """P19 资讯雷达：106 源 RSS 并发聚合（消息面）。
+
+    硬约束：消息面失败绝不影响盘后行情采集。整轮用线程看门狗封顶，
+    抓取/入库各自 try 隔离；非交易日也照常执行（周末消息面对周一开盘最关键）。
+    """
+    try:
+        from boardlib import radar
+        cfg = radar.load_sources()
+        items, status = _call_timeout(lambda: radar.fetch_all(cfg), radar.TOTAL_TIMEOUT)
+    except Exception as e:  # noqa: BLE001
+        print(f"[警告] 资讯雷达采集失败（不影响盘后数据）：{e}", flush=True)
+        return
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO rss_news(id,date,pub_time,title,summary,link,source,"
+            "track,track_name,lang) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [(r["id"], date_str, r["pub_time"], r["title"], r["summary"], r["link"],
+              r["source"], r["track"], r["track_name"], r["lang"]) for r in items])
+        conn.executemany(
+            "INSERT OR REPLACE INTO rss_status(date,source,track,track_name,ok,count,err,ms)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            [(date_str, s["source"], s["track"], s["track_name"], int(s["ok"]),
+              s["count"], str(s["err"])[:120], s["ms"]) for s in status])
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        conn.execute("DELETE FROM rss_news WHERE pub_time < ?", (cutoff,))
+        conn.execute("DELETE FROM rss_status WHERE date < ?", (cutoff.replace("-", ""),))
+        conn.commit()
+        good = sum(1 for s in status if s["ok"])
+        print(f"[OK] 资讯雷达 {len(items)} 条 / 可用源 {good}/{len(status)}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        print(f"[警告] 资讯雷达入库失败（不影响盘后数据）：{e}", flush=True)
 
 
 def load_trade_cal(conn):
@@ -722,11 +768,19 @@ def main():
     ap = argparse.ArgumentParser(description="A股行情看板 P0 数据采集器")
     ap.add_argument("--date", default=date.today().strftime("%Y%m%d"), help="YYYYMMDD")
     ap.add_argument("--force", action="store_true", help="强制重采（覆盖当日已有数据）")
+    ap.add_argument("--rss-only", action="store_true", help="只刷新资讯雷达消息面（非交易日也可用）")
     args = ap.parse_args()
     date_str = args.date
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_conn()
+    if args.rss_only:
+        fetch_radar(conn, date_str, now)
+        conn.close()
+        return
+
+    # P19 消息面：放在交易日历判断之前，周末也照常刷新（对周一开盘最关键）
+    fetch_radar(conn, date_str, now)
     cal = load_trade_cal(conn)
 
     if date_str not in cal:
