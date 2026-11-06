@@ -159,6 +159,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .desk-grid .card{margin-bottom:0;}
   @media (min-width:1024px){
     .desk-grid{grid-template-columns:200px 1.4fr 1fr; align-items:start;}
+    .desk-grid .col-nav,.desk-grid .col-side{position:sticky;top:14px;max-height:calc(100vh - 28px);overflow-y:auto;scrollbar-width:thin;}
   }
   .nav-card{padding:14px 0 12px;}
   .brand{text-align:center;font-size:14px;font-weight:600;color:#fff;background:var(--blue);margin:-14px -1px 0 -1px;padding:10px;border-radius:0;}
@@ -239,14 +240,22 @@ TEMPLATE = r"""<!DOCTYPE html>
   .foc-lb{font-size:11px;color:var(--up);font-weight:700;}
   .foc-reason{font-size:12.5px;color:var(--ink2);line-height:1.55;}
   .foc-date{font-size:10.5px;color:var(--ink3);margin-top:6px;}
-  .np-row{display:grid;grid-template-columns:76px 168px 1fr;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);align-items:start;}
-  .np-row:last-child{border-bottom:none;}
-  .np-dim{opacity:.62;}
-  .np-char{font-size:17px;font-weight:800;color:var(--accent);}
-  .np-stats{font-size:11.5px;color:var(--ink2);line-height:1.8;}
+  .np-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px;}
+  .np-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel-2);transition:border-color .15s;}
+  .np-card:hover{border-color:rgba(232,131,58,.45);}
+  .np-card-h{display:flex;align-items:baseline;gap:7px;margin-bottom:9px;}
+  .np-big{font-size:26px;font-weight:800;color:var(--accent);line-height:1;}
+  .np-big-sub{font-size:11px;color:var(--ink3);}
+  .np-stats2{margin-left:auto;display:flex;gap:10px;font-size:11px;color:var(--ink3);align-items:baseline;flex-wrap:wrap;}
+  .np-stats2 b{font-size:13px;}
   .np-hot{color:var(--up);font-weight:700;}
-  .np-hist{color:var(--ink3);font-size:10.5px;letter-spacing:2px;}
-  .np-members{display:flex;flex-wrap:wrap;gap:6px;}
+  .np-mems{display:flex;flex-wrap:wrap;gap:5px;}
+  .np-mem{font-size:12px;padding:2px 8px;border-radius:6px;background:var(--card);border:1px solid var(--line);}
+  .np-mem a{color:var(--ink);}
+  .np-mem-hi{background:var(--upbg);border-color:rgba(226,85,79,.35);}
+  .np-mem-hi a{color:var(--up);font-weight:600;}
+  .np-watch-t{font-size:11.5px;color:var(--ink3);margin-top:12px;line-height:1.7;}
+  .np-watch-t b{color:var(--ink2);}
   .chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:12px;background:var(--card);}
   .chip-zt{border-color:rgba(226,85,79,.5);background:var(--upbg);}
   .chip-lb{color:var(--up);font-size:10px;}
@@ -529,31 +538,30 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div class="view" id="view-focus" style="display:none">
         <div class="card">
           <div class="toolbar">
-            <div class="tb-title">市场聚焦 <span class="cnt" id="foc-cnt"></span></div>
-            <div class="tb-tip">新股 / 并购重组 / 复牌等情绪共振标的 · 点名字看K线分时</div>
+            <div class="tb-title">聚焦挖掘 <span class="cnt" id="foc-cnt"></span></div>
+            <div class="scr-tabs">
+              <button class="scr-btn active" data-f="focus" onclick="setFocusTab('focus')">市场聚焦</button>
+              <button class="scr-btn" data-f="np" onclick="setFocusTab('np')">字辈挖掘</button>
+              <button class="scr-btn" data-f="tlp" onclick="setFocusTab('tlp')">题材库</button>
+              <button class="scr-btn" data-f="cu" onclick="setFocusTab('cu')">补涨雷达</button>
+            </div>
           </div>
-          <div id="focus-body"></div>
-        </div>
-        <div class="card">
-          <div class="toolbar">
-            <div class="tb-title">字辈挖掘 <span class="cnt" id="np-cnt"></span></div>
-            <div class="tb-tip">同一汉字被≥3只涨停共享 = 共识字辈（华字辈/洋字辈）· 市场高度共性自动识别</div>
+          <div class="ftab" id="ftab-focus">
+            <div class="tb-tip" style="margin-bottom:10px;">新股 / 并购重组 / 复牌等情绪共振标的 · 点名字看K线分时</div>
+            <div id="focus-body"></div>
           </div>
-          <div id="np-body"></div>
-        </div>
-        <div class="card">
-          <div class="toolbar">
-            <div class="tb-title">重点题材库 <span class="cnt" id="tl-cnt"></span></div>
-            <div class="tb-tip">AI硬件·战略板块（中长线） / AI应用·传媒·消费（短线）</div>
+          <div class="ftab" id="ftab-np" style="display:none">
+            <div class="tb-tip" style="margin-bottom:10px;">同一汉字被 ≥3 只涨停共享 = 共识字辈（华字辈/洋字辈）· <span id="np-cnt"></span></div>
+            <div id="np-body"></div>
           </div>
-          <div id="tl-body"></div>
-        </div>
-        <div class="card">
-          <div class="toolbar">
-            <div class="tb-title">卡位补涨雷达 <span class="cnt" id="cu-cnt"></span></div>
-            <div class="tb-tip">龙头一字/断板/回调 → 板块内伴生补涨候选（字辈&gt;题材&gt;行业）· 二波与节点切换 · 点名看K线</div>
+          <div class="ftab" id="ftab-tlp" style="display:none">
+            <div class="tb-tip" style="margin-bottom:10px;">AI硬件·战略板块（中长线） / AI应用·传媒·消费（短线）· <span id="tl-cnt"></span></div>
+            <div id="tl-body"></div>
           </div>
-          <div id="cu-body"></div>
+          <div class="ftab" id="ftab-cu" style="display:none">
+            <div class="tb-tip" style="margin-bottom:10px;">龙头一字/断板/回调 → 板块内伴生补涨候选（字辈&gt;题材&gt;行业）· <span id="cu-cnt"></span></div>
+            <div id="cu-body"></div>
+          </div>
         </div>
       </div>
       <div class="view" id="view-timeline" style="display:none">
@@ -1283,6 +1291,18 @@ window.BOARD_DATA = __DATA__;
 
   var curView = "stage";
 
+  var focusTab = "focus";
+  window.setFocusTab = function (t) {
+    focusTab = t;
+    document.querySelectorAll(".scr-btn[data-f]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-f") === t);
+    });
+    ["focus", "np", "tlp", "cu"].forEach(function (k) {
+      var el = document.getElementById("ftab-" + k);
+      if (el) el.style.display = (k === t ? "" : "none");
+    });
+  };
+
   function showView(name) {
     curView = name;
     document.querySelectorAll(".view").forEach(function (v) { v.style.display = "none"; });
@@ -1299,6 +1319,7 @@ window.BOARD_DATA = __DATA__;
     var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
+    if (window.history) { try { history.replaceState(null, "", "#" + name); } catch (e) {} }
     renderAll();
   }
   window.showView = showView;
@@ -1717,28 +1738,26 @@ window.BOARD_DATA = __DATA__;
     });
     fh += '</div>';
     fb.innerHTML = fh;
-    /* ---- 字辈挖掘 ---- */
+    /* ---- 字辈挖掘（卡片网格） ---- */
     var np = data.nameplay || { active: [], watch: [] };
-    function npRow(c, dim) {
-      var chips = "";
+    var nh = '<div class="np-cards">';
+    np.active.forEach(function (c) {
+      nh += '<div class="np-card"><div class="np-card-h"><span class="np-big">' + esc(c.ch) + '</span>' +
+        '<span class="np-big-sub">字辈</span><div class="np-stats2">' +
+        '<span><b class="c-up">' + c.today + '</b> 今日</span><span>昨 ' + c.yesterday + '</span>' +
+        (c.streak >= 2 ? '<span class="np-hot">连燃 ' + c.streak + '日</span>' : '') +
+        '<span>最高 ' + c.max_lb + ' 板</span></div></div><div class="np-mems">';
       (c.members || []).forEach(function (m) {
-        chips += '<span class="chip' + (m.lb ? " chip-zt" : "") + '">' + stockLink(m.code, m.name) +
-          (m.lb > 1 ? '<b class="chip-lb">' + m.lb + '板</b>' : '') + '</span>';
+        nh += '<div class="np-mem' + (m.lb >= 3 ? " np-mem-hi" : "") + '">' + stockLink(m.code, m.name) +
+          (m.lb > 1 ? '<b class="chip-lb">' + m.lb + '板</b>' : '') + '</div>';
       });
-      return '<div class="np-row' + (dim ? " np-dim" : "") + '">' +
-        '<div class="np-char">' + esc(c.ch) + '字辈</div>' +
-        '<div class="np-stats">今日涨停 <b class="c-up">' + c.today + '</b> 只 · 昨日 ' + c.yesterday +
-        (c.streak >= 2 ? ' · <span class="np-hot">连燃' + c.streak + '日</span>' : '') +
-        ' · 最高 ' + c.max_lb + ' 板' +
-        '<br><span class="np-hist">' + (c.hist || []).join(" ") + '</span></div>' +
-        '<div class="np-members">' + chips + '</div></div>';
-    }
-    var nh = "";
-    np.active.forEach(function (c) { nh += npRow(c, false); });
+      nh += '</div></div>';
+    });
+    nh += '</div>';
     if (!np.active.length) nh = '<div class="np-empty">今日无 ≥3 只共识字辈 · 情绪分散无文字共性</div>';
     if (np.watch && np.watch.length) {
-      nh += '<div class="np-watch-t">观察（今日 2 只，尚未成气候）</div>';
-      np.watch.forEach(function (c) { nh += npRow(c, true); });
+      nh += '<div class="np-watch-t">观察（各 2 只，尚未成气候）：' +
+        np.watch.map(function (c) { return '<b>' + esc(c.ch) + '</b> ' + esc(c.members.map(function (m) { return m.name; }).join("、")); }).join('　·　') + '</div>';
     }
     document.getElementById("np-body").innerHTML = nh;
     document.getElementById("np-cnt").textContent = np.active.length + "个活跃";
@@ -1971,7 +1990,9 @@ window.BOARD_DATA = __DATA__;
   }
 
   bindFilters();
-  renderAll();
+  var _h = (location.hash || "").slice(1);
+  var _views = ["stage", "alert", "cycle", "theme", "screener", "news", "focus", "timeline"];
+  if (_h && _views.indexOf(_h) >= 0) { showView(_h); } else { renderAll(); }
 
   // ===== GSAP 动画层（CDN 加载失败时优雅降级为无动画）=====
   var prefersReduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
