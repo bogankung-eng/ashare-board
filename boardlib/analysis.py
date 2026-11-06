@@ -1675,6 +1675,118 @@ def analyze_seal_quality(days, dates):
             "funds": funds, "cur_max": cur_max, "prev_max": prev_max}
 
 
+CATCHUP_LOOKBACK = 8
+
+
+def analyze_catchup(days, dates, lookback=CATCHUP_LOOKBACK):
+    """P14 卡位补涨雷达：龙头一字/断板/回调 → 板块内伴生补涨候选；断板后回封 = 二波。
+
+    关联三通道（强度降序）：字辈（共享汉字，如 九阳→襄阳 的"阳"）> 题材（涨停原因首标签）> 行业。
+    触发口径：板块内最高板（窗口内）今日处于 一字/炸板/断板 状态（无法上车或高位压制）。
+    节点切换：断板板块 vs 今日新高标板块（昨日该板块无此高度）。"""
+    if len(dates) < 3:
+        return {"leaders": [], "switches": []}
+    win = dates[-lookback:]
+    today = dates[-1]
+    zt_idx = {d: {r.get("代码"): r for r in days[d]["pools"]["zt"]} for d in win}
+    zb_idx = {d: {r.get("代码"): r for r in days[d]["pools"]["zb"]} for d in win}
+    # 高标档案：窗口内曾达 2 板的股
+    seen = {}
+    for d in win:
+        for code, r in zt_idx[d].items():
+            lb = int(r.get("连板数") or 0)
+            if lb < 1:
+                continue
+            old = seen.get(code)
+            if old is None or lb > old["hi_lb"]:
+                old = {"code": code, "name": str(r.get("名称")), "hi_lb": lb,
+                       "ind": r.get("所属行业") or "其他", "hi_day": d,
+                       "reason": str(r.get("涨停原因") or "").split("+")[0][:12]}
+            old["last_zt_day"] = d
+            seen[code] = old
+    # 板块内最高板 = 板块龙头（窗口口径）
+    ind_leader = {}
+    for code, s in seen.items():
+        if s["hi_lb"] > ind_leader.get(s["ind"], {}).get("hi_lb", 0):
+            ind_leader[s["ind"]] = s
+    stop = NAMEPLAY_STOP
+    leaders, switches = [], []
+    for ind, L in ind_leader.items():
+        code = L["code"]
+        today_row = zt_idx[today].get(code)
+        zb_row = zb_idx[today].get(code)
+        gap_days = win.index(today) - win.index(L["last_zt_day"])
+        if today_row:
+            lb = int(today_row.get("连板数") or 0)
+            turn = float(today_row.get("换手率") or 0)
+            status = "一字" if turn < 1 else "在板"
+            wave2 = gap_days >= 1 and L["hi_lb"] >= 3
+            if not wave2 and turn >= 1:
+                continue  # 在板且可上车 → 不触发雷达
+            tag = ("二波启动" if wave2 else "一字")
+        elif zb_row:
+            status, tag = "炸板", "炸板"
+            wave2 = False
+        else:
+            status, tag = "断板", f"断板{gap_days}日"
+            wave2 = False
+            if gap_days > 5:
+                continue  # 回调过久，非当下机会
+        if gap_days == 0 and status in ("炸板",):
+            pass  # 当日炸板也算不可上车
+        # 伴生候选：今日涨停、非龙头、低于龙头高度、三通道关联
+        cands = []
+        for r in zt_idx[today].values():
+            c = r.get("代码")
+            if c == code or int(r.get("连板数") or 0) >= L["hi_lb"]:
+                continue
+            nm = str(r.get("名称") or "")
+            shared = sorted({ch for ch in nm if "\u4e00" <= ch <= "\u9fff" and ch not in stop}
+                            & {ch for ch in L["name"] if "\u4e00" <= ch <= "\u9fff" and ch not in stop})
+            rtag = str(r.get("涨停原因") or "").split("+")[0].strip()
+            if shared:
+                link = ("字辈·" + "".join(shared))
+            elif rtag and rtag == L["reason"] and rtag:
+                link = "题材·" + rtag
+            elif (r.get("所属行业") or "") == ind:
+                link = "行业·" + ind
+            else:
+                continue
+            cands.append({"code": c, "name": nm, "lb": int(r.get("连板数") or 0),
+                          "link": link, "shared": len(shared),
+                          "turn": float(r.get("换手率") or 0)})
+        if not cands and status == "在板":
+            continue
+        cands.sort(key=lambda c: (0 if c["link"].startswith("字辈") else
+                                  (1 if c["link"].startswith("题材") else 2),
+                                  -c.get("shared", 0), -c["lb"]))
+        leaders.append({"leader": L, "status": status, "tag": tag, "wave2": wave2,
+                        "gap_days": gap_days, "cands": cands[:4], "cur_max": cur_max_of(zt_idx[today])})
+    leaders.sort(key=lambda x: (-x["leader"]["hi_lb"], x["status"] != "一字"))
+    # 节点切换：断板/炸板板块龙头 vs 今日新高标（昨日板块无此高度）
+    broken = [l for l in leaders if l["status"] in ("断板", "炸板") and l["leader"]["hi_lb"] >= 2]
+    for b in broken:
+        bind = b["leader"]["ind"]
+        prev_max_ind = 0
+        for d in win[:-1]:
+            for r in zt_idx[d].values():
+                if (r.get("所属行业") or "") == bind:
+                    prev_max_ind = max(prev_max_ind, int(r.get("连板数") or 0))
+        for r in zt_idx[today].values():
+            lb = int(r.get("连板数") or 0)
+            if lb >= 2 and lb > prev_max_ind and (r.get("所属行业") or "") != bind:
+                switches.append({"from_ind": bind, "from_name": b["leader"]["name"],
+                                 "from_lb": b["leader"]["hi_lb"], "from_status": b["status"],
+                                 "to_name": str(r.get("名称")), "to_code": r.get("代码"),
+                                 "to_ind": r.get("所属行业") or "其他", "to_lb": lb})
+    switches = switches[:6]
+    return {"leaders": leaders[:8], "switches": switches, "today": today}
+
+
+def cur_max_of(zt_rows):
+    return max((int(r.get("连板数") or 0) for r in zt_rows.values()), default=0)
+
+
 def build(dates):
     conn = sqlite3.connect(DB)
     days = {}
@@ -1736,9 +1848,10 @@ def build(dates):
                 "week": analyze_period_timeline(days, dates, 5),
                 "month": analyze_period_timeline(days, dates, 22)}
     sealq = analyze_seal_quality(days, dates)
+    catchup = analyze_catchup(days, dates)
     conn.close()
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
             "lowpos": lowpos, "screener": screener, "news": news,
             "promotion": promotion, "newsMap": news_map,
             "nameplay": nameplay, "focus": focus, "themelib": themelib,
-            "unlock": unlock, "timeline": timeline, "sealq": sealq}
+            "unlock": unlock, "timeline": timeline, "sealq": sealq, "catchup": catchup}

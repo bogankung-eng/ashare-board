@@ -25,7 +25,14 @@ TEMPLATE = r"""<!DOCTYPE html>
   .wrap{max-width:1320px; margin:0 auto; padding:22px 18px 60px;}
   .shell{background:var(--card); border:1px solid var(--border); border-radius:28px; padding:24px 26px 34px; box-shadow:0 40px 90px -50px rgba(0,0,0,.4); position:relative; overflow:hidden;}
   .shell::before{content:""; position:absolute; top:0; right:0; width:280px; height:200px; background:radial-gradient(280px 200px at 90% -10%, rgba(232,162,58,.15), transparent 60%); pointer-events:none;}
-    #h-toast{display:none;position:fixed;right:16px;bottom:16px;background:var(--toolbar);color:var(--ink);border:1px solid var(--toolbar-line);border-radius:8px;padding:9px 14px;font-size:12.5px;z-index:99;}
+    .cu-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 0;border-bottom:1px dashed var(--line);}
+  .cu-tag{font-size:10px;border-radius:4px;padding:1px 7px;background:var(--panel-2);color:var(--ink2);flex:none;}
+  .cu-wave{background:var(--amberbg);color:var(--amber);font-weight:600;}
+  .cu-lb{color:var(--up);font-size:11px;}
+  .cu-ind{color:var(--ink3);font-size:11px;}
+  .cu-arrow{color:var(--accent);font-weight:700;}
+  .cu-link{font-style:normal;font-size:10px;color:var(--accent);background:var(--accent-soft);border-radius:3px;padding:0 4px;}
+  #h-toast{display:none;position:fixed;right:16px;bottom:16px;background:var(--toolbar);color:var(--ink);border:1px solid var(--toolbar-line);border-radius:8px;padding:9px 14px;font-size:12.5px;z-index:99;}
 .topbar{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; background:var(--toolbar); border:none; border-radius:var(--r-sm); padding:11px 18px; box-shadow:var(--shadow);}
   h1{font-size:16.5px; font-weight:600; color:#f5f1ea; letter-spacing:-.01em;}
   .sub{color:#a89c8e; font-size:12px;}
@@ -540,6 +547,13 @@ TEMPLATE = r"""<!DOCTYPE html>
             <div class="tb-tip">AI硬件·战略板块（中长线） / AI应用·传媒·消费（短线）</div>
           </div>
           <div id="tl-body"></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">卡位补涨雷达 <span class="cnt" id="cu-cnt"></span></div>
+            <div class="tb-tip">龙头一字/断板/回调 → 板块内伴生补涨候选（字辈&gt;题材&gt;行业）· 二波与节点切换 · 点名看K线</div>
+          </div>
+          <div id="cu-body"></div>
         </div>
       </div>
       <div class="view" id="view-timeline" style="display:none">
@@ -1746,6 +1760,34 @@ window.BOARD_DATA = __DATA__;
     });
     document.getElementById("tl-body").innerHTML = th;
     document.getElementById("tl-cnt").textContent = tl.length + "大方向";
+    /* ---- 卡位补涨雷达 ---- */
+    var cu = data.catchup || { leaders: [], switches: [] };
+    var cb = document.getElementById("cu-body");
+    document.getElementById("cu-cnt").textContent = cu.leaders.length + "触发";
+    var ch = "";
+    cu.leaders.forEach(function (l) {
+      var L = l.leader;
+      ch += '<div class="cu-row"><span class="cu-tag' + (l.wave2 ? " cu-wave" : "") + '">' + esc(l.tag) + '</span>' +
+        stockLink(L.code, L.name) + '<b class="cu-lb">' + L.hi_lb + '板</b>' +
+        '<span class="cu-ind">' + esc(L.ind) + '</span><span class="cu-arrow">→</span>';
+      if (l.cands.length) {
+        l.cands.forEach(function (c) {
+          ch += '<span class="chip' + (c.lb ? " chip-zt" : "") + '">' + stockLink(c.code, c.name) +
+            '<i class="cu-link">' + esc(c.link) + '</i>' +
+            (c.lb ? '<b class="chip-lb">' + c.lb + '板</b>' : '') + '</span>';
+        });
+      } else {
+        ch += '<span class="np-empty">暂无同源候选</span>';
+      }
+      ch += '</div>';
+    });
+    if (!cu.leaders.length) ch += '<div class="np-empty">今日无可操作龙头状态（一字/断板/回调）· 接力顺畅</div>';
+    (cu.switches || []).forEach(function (sw) {
+      ch += '<div class="tlp-node"><span class="tlp-node-t">节点切换</span> ' +
+        esc(sw.from_name) + '（' + esc(sw.from_ind) + ' ' + sw.from_lb + '板·' + esc(sw.from_status) + '）→ ' +
+        stockLink(sw.to_code, sw.to_name) + '<span class="tlp-node-ind">【' + esc(sw.to_ind) + '】' + sw.to_lb + '板</span></div>';
+    });
+    cb.innerHTML = ch;
   }
 
   var tlPeriod = "day";

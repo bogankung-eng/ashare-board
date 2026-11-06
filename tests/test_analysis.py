@@ -205,3 +205,17 @@ def test_seal_quality_structure(days):
         assert f["cur"] is None or f["cur"] >= 0
         assert f["prev"] is None or f["prev"] >= 0
     assert sq["cur_max"] >= 0 and sq["prev_max"] >= 0
+
+
+def test_catchup_structure(days):
+    dd, d3 = days
+    cu = A.analyze_catchup(dd, d3)
+    assert {"leaders", "switches"} <= set(cu)
+    for l in cu["leaders"]:
+        L = l["leader"]
+        assert {"code", "name", "hi_lb", "ind"} <= set(L)
+        assert l["status"] in ("一字", "在板", "炸板", "断板")
+        for c in l["cands"]:
+            assert c["link"].startswith(("字辈", "题材", "行业"))
+    for sw in cu["switches"]:
+        assert sw["to_lb"] >= 2 and sw["from_lb"] >= 2
