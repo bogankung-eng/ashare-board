@@ -642,6 +642,71 @@ TEMPLATE = r"""<!DOCTYPE html>
     #radar-body{padding-left:13px;}
     .rd-item::before{left:-17px;}
   }
+  /* ===== P20 周期锚定链：独立命名空间，沿用 P16 令牌 ===== */
+  .an-sum{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;margin-bottom:12px;}
+  .an-sum-c{flex:1 1 84px;background:var(--surface-2);padding:9px 11px;}
+  .an-sum-c .v{display:block;font-family:var(--font-mono);font-size:15px;color:var(--ink);line-height:1.2;font-variant-numeric:tabular-nums;}
+  .an-sum-c .k{display:block;font-size:10px;color:var(--ink3);margin-top:3px;}
+  .an-sum-n{flex:1 1 100%;background:var(--surface-2);padding:6px 11px;font-size:10px;color:var(--ink3);border-top:1px solid var(--line);line-height:1.7;}
+  .an-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:12px;}
+  .an-chip{padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink2);font:inherit;font-size:11px;line-height:1.6;white-space:nowrap;cursor:pointer;transition:color .2s ease,border-color .2s ease,background .2s ease;}
+  .an-chip:hover{color:var(--ink);border-color:var(--line-2);background:var(--hover);}
+  .an-chip.active{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-soft);}
+  .an-n{font-family:var(--font-mono);font-size:10px;opacity:.7;margin-left:3px;font-variant-numeric:tabular-nums;}
+  .an-sep{width:1px;height:14px;background:var(--line-2);margin:0 3px;}
+  .an-relay{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-bottom:14px;padding:9px 11px;border:1px dashed var(--line-2);border-radius:var(--r-sm);}
+  .an-relay-t{font-size:10.5px;color:var(--ink3);}
+  .an-relay-i{font-size:11px;color:var(--ink2);white-space:nowrap;}
+  .an-relay-i b{color:var(--accent-strong);font-weight:500;}
+  .an-relay-i span{color:var(--ink3);}
+  .an-chain{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:12px;overflow:hidden;}
+  .an-chain:last-child{margin-bottom:0;}
+  .an-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid var(--line);}
+  .an-key{font-size:15px;color:var(--ink);letter-spacing:.02em;}
+  .an-key::before{content:"「";color:var(--ink3);}
+  .an-key::after{content:"」";color:var(--ink3);}
+  .an-badge{padding:1px 8px;border-radius:999px;font-size:10px;border:1px solid var(--line);color:var(--ink2);white-space:nowrap;}
+  .an-badge.healthy{border-color:var(--green);color:var(--green);background:var(--greenbg);}
+  .an-badge.relay{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-soft);}
+  .an-badge.ended{color:var(--ink3);}
+  .an-badge.broken{border-color:var(--red);color:var(--red);background:var(--redbg);}
+  .an-badge.platform{border-color:var(--green);color:var(--green);}
+  .an-meta{margin-left:auto;font-size:10.5px;color:var(--ink3);font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
+  .an-body{padding:11px 13px 13px;}
+  .an-row{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:11.5px;line-height:1.85;padding:3px 0;}
+  .an-lab{flex:none;width:52px;color:var(--ink3);font-size:10.5px;}
+  .an-state{font-size:10.5px;color:var(--ink2);}
+  .an-mem{display:flex;flex-wrap:wrap;gap:5px;flex:1 1 200px;min-width:0;}
+  .an-chip-mem{padding:1px 7px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:10.5px;color:var(--ink2);}
+  .an-chip-mem.first{border-color:var(--accent);color:var(--accent-strong);}
+  .an-spark{display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:7px;}
+  .an-bar{flex:1 1 3px;min-width:2px;max-width:10px;background:var(--line-2);border-radius:1px 1px 0 0;}
+  .an-bar.peak{background:var(--red);}
+  .an-bar.today{background:var(--accent);}
+  .an-bar.zero{background:var(--line);}
+  .an-events{margin-top:10px;padding-left:13px;border-left:1px solid var(--line);}
+  .an-ev{position:relative;font-size:10.5px;color:var(--ink2);line-height:1.85;}
+  .an-ev::before{content:"";position:absolute;left:-16px;top:8px;width:5px;height:5px;border-radius:50%;background:var(--line-2);}
+  .an-ev.hot::before{background:var(--accent);}
+  .an-ev-d{font-family:var(--font-mono);color:var(--ink3);margin-right:6px;font-variant-numeric:tabular-nums;}
+  .an-ev-t{color:var(--ink3);margin-right:5px;}
+  .an-hint{font-size:10.5px;color:var(--ink3);line-height:1.7;margin-top:10px;}
+  .np-clus{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+  .np-clus-t{font-size:10.5px;color:var(--ink3);margin-bottom:6px;}
+  .np-clus-p{padding:2px 9px;border:1px solid var(--line);border-radius:999px;font-size:10.5px;color:var(--ink2);}
+  .np-clus-p.live{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-soft);}
+  .cu-anchor{padding:1px 7px;border-radius:999px;font-size:10px;border:1px solid var(--line);color:var(--ink2);}
+  .cu-anchor.ok{border-color:var(--green);color:var(--green);}
+  .cu-anchor.bad{border-color:var(--red);color:var(--red);}
+  @media (max-width:760px){
+    .an-sum-c{flex:1 1 44%;}
+    .an-body{padding:10px 11px;}
+    .an-head{padding:10px 11px;}
+    .an-meta{margin-left:0;flex:1 1 100%;}
+    .an-lab{width:100%;}
+    .an-events{padding-left:11px;}
+    .an-ev::before{left:-14px;}
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
@@ -767,6 +832,18 @@ TEMPLATE = r"""<!DOCTYPE html>
         <div class="card">
           <div class="toolbar"><div class="tb-title">情绪 · 周期</div></div>
           <div id="cycle-body"></div>
+        </div>
+      </div>
+      <div class="view" id="view-anchor" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">周期锚定链 <span class="cnt" id="anchor-cnt"></span></div>
+            <div class="tb-tip">属性簇取涨停原因标签 · 双字/谐音不拆 · 锚状态由 K 线量化</div>
+          </div>
+          <div id="anchor-sum"></div>
+          <div id="anchor-tools"></div>
+          <div id="anchor-relay"></div>
+          <div id="anchor-body"></div>
         </div>
       </div>
       <div class="view" id="view-theme" style="display:none">
@@ -961,6 +1038,9 @@ window.BOARD_DATA = __DATA__;
     ["#scr-body table", "tr", 20, "out"],
     ["#news-body .tl", ":scope > .tl-item", 15, "in"],
     ["#radar-body", ":scope > .rd-item", 20, "in"],
+    ["#anchor-body", ":scope > .an-chain", 6, "in"],
+    ["#anchor-body .an-events", ":scope > .an-ev", 6, "in"],
+    ["#anchor-body .an-mem", ":scope > .an-chip-mem", 12, "in"],
     ["#focus-body .foc-grid", ":scope > .foc-card", 8, "in"],
     ["#np-body .np-cards", ":scope > .np-card", 8, "in"],
     ["#np-body .np-mems", ":scope > .np-mem", 12, "in"],
@@ -1672,7 +1752,7 @@ window.BOARD_DATA = __DATA__;
     document.querySelectorAll(".mod-btn").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-mod") === name);
     });
-    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点", radar: "消息面 · 12 赛道" };
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点", radar: "消息面 · 12 赛道", anchor: "跨周期 · 锚定链" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
     if (window.history) { try { history.replaceState(null, "", "#" + name); } catch (e) {} }
@@ -1680,9 +1760,10 @@ window.BOARD_DATA = __DATA__;
   }
   window.showView = showView;
 
-  var NAV_META = { stage: ["涨停梯队", "□"], alert: ["异动预警", "△"], cycle: ["情绪周期", "∿"], theme: ["主线龙头", "★"], timeline: ["时间线", "⌛"], screener: ["选股器", "◎"], news: ["公告资讯", "❐"], focus: ["聚焦挖掘", "◉"], radar: ["资讯雷达", "◈"] };
+  var NAV_META = { stage: ["涨停梯队", "□"], alert: ["异动预警", "△"], cycle: ["情绪周期", "∿"], theme: ["主线龙头", "★"], timeline: ["时间线", "⌛"], screener: ["选股器", "◎"], news: ["公告资讯", "❐"], focus: ["聚焦挖掘", "◉"], radar: ["资讯雷达", "◈"], anchor: ["锚定链", "⌁"] };
   var NAV_GROUPS = [
     { name: "短线复盘", items: ["stage", "alert", "cycle", "theme", "timeline"] },
+    { name: "关系链", items: ["anchor"] },
     { name: "工具", items: ["screener", "news", "focus", "radar"] },
   ];
   window.toggleNavGroup = function (id) {
@@ -1855,6 +1936,139 @@ window.BOARD_DATA = __DATA__;
       var old = document.getElementById("cycle-card");
       if (old) old.innerHTML = "";
     })();
+  }
+
+  /* ===== P20 周期锚定链：只回答「这条关系链还活着吗」 ===== */
+  var anchorWin = 60, anchorFilter = "all";
+  window.setAnchorWin = function (n) { anchorWin = n; renderAnchor(); applyFolds(document); };
+  window.setAnchorFilter = function (f) { anchorFilter = f; renderAnchor(); applyFolds(document); };
+  function anDate(d) {
+    var s = String(d || "");
+    return s.length === 8 ? s.slice(4, 6) + "/" + s.slice(6, 8) : s;
+  }
+
+  function renderAnchor() {
+    if (curView !== "anchor") return;
+    var box = document.getElementById("anchor-body");
+    if (!box) return;
+    var a = data.anchor || { clusters: [], relays: [], switches: [], window: [], summary: {}, today: "" };
+    var cs = a.clusters || [], win = (a.window || []).slice(-anchorWin);
+    var winSet = {};
+    win.forEach(function (d) { winSet[d] = 1; });
+    var inWin = cs.filter(function (c) {
+      return (c.days || []).some(function (x) { return winSet[x.date]; });
+    });
+    var sm = a.summary || {};
+
+    var sum = document.getElementById("anchor-sum");
+    if (sum) sum.innerHTML = '<div class="an-sum">' +
+      '<div class="an-sum-c"><span class="v">' + cs.length + '</span><span class="k">属性簇链</span></div>' +
+      '<div class="an-sum-c"><span class="v">' + (sm.alive || 0) + '</span><span class="k">今日仍活跃</span></div>' +
+      '<div class="an-sum-c"><span class="v">' + (sm.healthy || 0) + '</span><span class="k">链健康</span></div>' +
+      '<div class="an-sum-c"><span class="v">' + (sm.relay || 0) + '</span><span class="k">待接力</span></div>' +
+      '<div class="an-sum-c"><span class="v">' + (sm.peak || 0) + '</span><span class="k">单日峰值</span></div>' +
+      '<div class="an-sum-c"><span class="v">' + win.length + '</span><span class="k">显示交易日</span></div>' +
+      '<div class="an-sum-n">识别窗口 ' + (a.window_days || 0) + ' 个交易日 · 属性标签自 ' +
+      esc(String(a.label_since || "").slice(0, 8)) + ' 起可用 · 窗口只调整显示跨度，锚按全周期识别</div></div>';
+
+    var counts = { all: inWin.length, healthy: 0, relay: 0, ended: 0 };
+    inWin.forEach(function (c) {
+      var k = (c.chain_state || {}).key || "ended";
+      if (counts[k] !== undefined) counts[k]++;
+    });
+    var tf = '<div class="an-tools">';
+    [20, 40, 60].forEach(function (n) {
+      tf += '<button class="an-chip' + (anchorWin === n ? " active" : "") + '" onclick="setAnchorWin(' + n + ')">近 ' + n + ' 日</button>';
+    });
+    tf += '<span class="an-sep"></span>';
+    [["all", "全部"], ["healthy", "链健康"], ["relay", "待接力"], ["ended", "已结束"]].forEach(function (p) {
+      tf += '<button class="an-chip' + (anchorFilter === p[0] ? " active" : "") +
+        '" onclick="setAnchorFilter(\'' + p[0] + '\')">' + p[1] +
+        '<span class="an-n">' + (counts[p[0]] || 0) + '</span></button>';
+    });
+    tf += '</div>';
+    var tbox = document.getElementById("anchor-tools");
+    if (tbox) tbox.innerHTML = tf;
+
+    var rel = a.relays || [], sw = a.switches || [], rbox = document.getElementById("anchor-relay");
+    if (rbox) {
+      var rh = "";
+      if (rel.length) {
+        rh += '<div class="an-relay"><span class="an-relay-t">属性接力 ·</span>';
+        rel.forEach(function (r) {
+          rh += '<span class="an-relay-i"><b>' + esc(r.from) + '</b> → <b>' + esc(r.to) +
+            '</b> <span>' + anDate(r.date) + ' · 隔 ' + r.gap + ' 日</span></span>';
+        });
+        rh += '</div>';
+      }
+      if (sw.length) {
+        rh += '<div class="an-relay"><span class="an-relay-t">板块间切换 ·</span>';
+        var seenSw = {}, swShown = 0;
+        sw.forEach(function (s) {
+          if (seenSw[s.to_code] || swShown >= 4) return;  // 同一目标只留一个源，避免重复刷屏
+          seenSw[s.to_code] = 1; swShown++;
+          rh += '<span class="an-relay-i">' + esc(s.from_name) + ' <span>' + esc(s.from_status) +
+            '</span> → <b>' + esc(s.to_name) + '</b> <span>' + s.to_lb + ' 板</span></span>';
+        });
+        rh += '</div>';
+      }
+      rbox.innerHTML = rh;
+    }
+
+    var shown = inWin.filter(function (c) {
+      return anchorFilter === "all" || ((c.chain_state || {}).key || "ended") === anchorFilter;
+    });
+    var cntEl = document.getElementById("anchor-cnt");
+    if (cntEl) cntEl.textContent = shown.length + " 条链";
+    if (!shown.length) { box.innerHTML = '<div class="empty">该筛选下暂无锚定链</div>'; return; }
+
+    var h = "";
+    shown.forEach(function (c) {
+      var st = c.anchor_state || {}, chain = c.chain_state || {}, AN = c.anchor || {};
+      var badgeCls = chain.key === "healthy" ? "healthy" : (chain.key === "relay" ? "relay" : "ended");
+      var stCls = (st.key === "broken" || st.key === "shaky") ? "broken" : "platform";
+      h += '<div class="an-chain"><div class="an-head">' +
+        '<span class="an-key">' + esc(c.label) + '</span>' +
+        '<span class="an-badge ' + badgeCls + '">' + esc(chain.label || "") + '</span>' +
+        '<span class="an-badge ' + stCls + '">锚 ' + esc(st.label || "") + '</span>' +
+        '<span class="an-meta">' + anDate(c.first_day) + ' → ' + anDate(c.last_day) +
+        ' · 峰值 ' + (c.peak || {}).count + ' 只 · 今日 ' + c.today + ' 只 · ' +
+        c.member_total + ' 成员</span></div><div class="an-body">';
+      h += '<div class="an-row"><span class="an-lab">锚</span>' + stockLink(AN.code, AN.name) +
+        '<span class="an-state">' + esc(st.detail || "") + '</span></div>';
+      var fm = (c.first_movers || []).map(function (m) {
+        return stockLink(m.code, m.name) + '<span class="an-state">' + anDate(m.first_day) + '</span>';
+      }).join('　');
+      /* 成员少时「首动梯队」与「同属性」几乎重复，直接省掉这一行 */
+      if (fm && c.member_total > 8) h += '<div class="an-row"><span class="an-lab">首动梯队</span>' + fm + '</div>';
+      h += '<div class="an-row"><span class="an-lab">同属性</span><div class="an-mem">';
+      (c.members || []).forEach(function (m, i) {
+        h += '<span class="an-chip-mem' + (i < (c.first_movers || []).length ? " first" : "") + '">' +
+          stockLink(m.code, m.name) +
+          (m.max_lb > 1 ? '<span class="an-n">' + m.max_lb + '板</span>' : '') + '</span>';
+      });
+      h += '</div></div>';
+      /* 逐日画满整个窗口，无活动的交易日留极淡基线 → 断档/启动点一眼可见 */
+      var byDate = {}, pk = (c.peak || {}).count || 1;
+      (c.days || []).forEach(function (x) { byDate[x.date] = x.count; });
+      h += '<div class="an-spark" title="逐日同属性涨停数">';
+      win.forEach(function (dt) {
+        var n = byDate[dt] || 0;
+        var cls = !n ? " zero" : (dt === c.peak.date ? " peak" : (dt === a.today ? " today" : ""));
+        h += '<span class="an-bar' + cls + '" style="height:' +
+          (n ? Math.max(8, Math.round(n / pk * 100)) : 4) + '%" title="' +
+          anDate(dt) + ' · ' + n + ' 只"></span>';
+      });
+      h += '</div><div class="an-hint">柱高 = 当日同属性涨停数（红 = 峰值，铜 = 今日，淡线 = 无活动）· 连续近 ' +
+        win.length + ' 个交易日</div><div class="an-events">';
+      (c.events || []).forEach(function (e) {
+        var hot = e.type === "节点切换" || e.type === "扩散峰值";
+        h += '<div class="an-ev' + (hot ? " hot" : "") + '"><span class="an-ev-d">' + anDate(e.date) +
+          '</span><span class="an-ev-t">' + esc(e.type) + '</span>' + esc(e.text) + '</div>';
+      });
+      h += '</div></div></div>';
+    });
+    box.innerHTML = h;
   }
 
   function renderThemeView() {
@@ -2202,6 +2416,18 @@ window.BOARD_DATA = __DATA__;
     });
     nh += '</div>';
     if (!np.active.length) nh = '<div class="np-empty">今日无 ≥3 只共识字辈 · 情绪分散无文字共性</div>';
+    /* P20 ③ 共用口径：属性簇取涨停原因标签，双字/谐音不拆，与上方单字字辈并列对照 */
+    var cl = np.clusters || [];
+    if (cl.length) {
+      nh += '<div class="np-clus-t">属性簇 · 取涨停原因标签，双字/谐音不拆</div><div class="np-clus">';
+      cl.forEach(function (c) {
+        nh += '<span class="np-clus-p' + (c.alive ? " live" : "") + '" title="锚 ' +
+          esc(c.anchor).replace(/"/g, "&quot;") + ' · ' + esc(c.state).replace(/"/g, "&quot;") +
+          ' · 峰值 ' + c.peak + ' 只">' + esc(c.key) + ' · 今日 ' + c.today +
+          ' · ' + esc(c.chain) + '</span>';
+      });
+      nh += '</div>';
+    }
     if (np.watch && np.watch.length) {
       nh += '<div class="np-watch-t">观察（各 2 只，尚未成气候）：' +
         np.watch.map(function (c) { return '<b>' + esc(c.ch) + '</b> ' + esc(c.members.map(function (m) { return m.name; }).join("、")); }).join('　·　') + '</div>';
@@ -2232,9 +2458,11 @@ window.BOARD_DATA = __DATA__;
     document.getElementById("cu-cnt").textContent = cu.leaders.length + "触发";
     var ch = "";
     cu.leaders.forEach(function (l) {
-      var L = l.leader;
+      var L = l.leader, ast = L.anchor_state || null;
       ch += '<div class="cu-row"><span class="cu-tag' + (l.wave2 ? " cu-wave" : "") + '">' + esc(l.tag) + '</span>' +
         stockLink(L.code, L.name) + '<b class="cu-lb">' + L.hi_lb + '板</b>' +
+        (ast ? '<span class="cu-anchor ' + ((ast.key === "broken" || ast.key === "shaky") ? "bad" : "ok") +
+          '" title="' + esc(ast.detail || "").replace(/"/g, "&quot;") + '">锚 ' + esc(ast.label) + '</span>' : '') +
         '<span class="cu-ind">' + esc(L.ind) + '</span><span class="cu-arrow">→</span>';
       if (l.cands.length) {
         l.cands.forEach(function (c) {
@@ -2381,6 +2609,7 @@ window.BOARD_DATA = __DATA__;
     renderScreener();
     renderNews();
     renderRadar();
+    renderAnchor();
     renderFocus();
     renderTimeline();
     renderSidePanel();
@@ -2641,7 +2870,7 @@ window.BOARD_DATA = __DATA__;
   renderTrend();
   renderValue();
   var _h = (location.hash || "").slice(1);
-  var _views = ["stage", "alert", "cycle", "theme", "screener", "news", "focus", "timeline", "radar"];
+  var _views = ["stage", "alert", "cycle", "theme", "screener", "news", "focus", "timeline", "radar", "anchor"];
   if (_h && _views.indexOf(_h) >= 0) { showView(_h); } else { renderAll(); }
 
   // ===== GSAP 动画层（仅首屏，判定已在顶部完成）=====

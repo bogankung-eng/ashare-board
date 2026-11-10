@@ -7,6 +7,7 @@ from datetime import datetime
 
 from .config import BASE, DB, OUT, IDX
 from . import radar
+from . import anchors  # P20 周期锚定链（属性簇 + 锚状态 + 关系链）
 
 def analyze_lowpos(conn):
     """低位潜力股：位置低(距52周高回落≥25%) + 近期活跃(20日涨停/放量) + 基本面(ROE>0) + 题材热度
@@ -1337,9 +1338,10 @@ def analyze_period_timeline(days, dates, n):
     return {"days": days_arr, "nodes": nodes, "matrix": matrix, "dates": dd}
 
 
-def analyze_nameplay(days, dates, lookback=5):
+def analyze_nameplay(days, dates, lookback=5, clusters=None):
     """字辈挖掘：同一汉字被多只涨停股共享 → 市场共识字辈（华字辈/洋字辈等）。
-    活跃 = 今日≥3只；观察 = 今日2只；连燃 = 连续N日≥2只。只统计今日仍出现的字。"""
+    活跃 = 今日≥3只；观察 = 今日2只；连燃 = 连续N日≥2只。只统计今日仍出现的字。
+    P20 ③：可选 clusters 为锚定链的属性簇简表（双字/谐音不拆），不传则保持原结构。"""
     dd = dates[-lookback:]
     if not dd:
         return {"active": [], "watch": [], "days": []}
@@ -1372,7 +1374,10 @@ def analyze_nameplay(days, dates, lookback=5):
                  key=lambda x: (-x["today"], -x["max_lb"], -x["streak"], x["ch"]))
     wat = sorted((v for v in chars.values() if v["today"] == 2),
                  key=lambda x: (-x["max_lb"], -x["streak"], x["ch"]))
-    return {"active": act, "watch": wat, "days": dd}
+    out = {"active": act, "watch": wat, "days": dd}
+    if clusters is not None:
+        out["clusters"] = clusters
+    return out
 
 
 def load_themelib_cfg():
@@ -1856,8 +1861,12 @@ def build(dates):
     promotion = analyze_promotion(days, dates)
     news_map = build_name_map(conn, dates)
     unlock = load_unlock(conn, dates[-1]) if dates else {"total": 0, "total_mv": 0, "days": [], "stocks": []}
+    # P20 周期锚定链：必须在 conn 关闭前算完（前端 days 经 P12 分片只留最近 5 日）
+    catchup = analyze_catchup(days, dates)
+    anchor = anchors.build_anchor(conn, days, dates, switches=catchup.get("switches", []))
+    anchors.annotate_leaders(conn, catchup, days, dates)
     # 聚焦挖掘：字辈 + 市场聚焦 + 题材库（统一一次批量行情）
-    nameplay = analyze_nameplay(days, dates)
+    nameplay = analyze_nameplay(days, dates, clusters=anchors.cluster_brief(anchor))
     focus_cands = gather_focus(conn, days, dates, news_map)
     pool_names = {}
     for d in dates[-10:]:
@@ -1880,10 +1889,10 @@ def build(dates):
                 "week": analyze_period_timeline(days, dates, 5),
                 "month": analyze_period_timeline(days, dates, 22)}
     sealq = analyze_seal_quality(days, dates)
-    catchup = analyze_catchup(days, dates)
     conn.close()
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
             "lowpos": lowpos, "screener": screener, "news": news, "radar": radar_data,
             "promotion": promotion, "newsMap": news_map,
             "nameplay": nameplay, "focus": focus, "themelib": themelib,
-            "unlock": unlock, "timeline": timeline, "sealq": sealq, "catchup": catchup}
+            "unlock": unlock, "timeline": timeline, "sealq": sealq, "catchup": catchup,
+            "anchor": anchor}
