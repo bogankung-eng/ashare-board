@@ -6,6 +6,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){var t='light';try{var s=localStorage.getItem('board-theme');if(s==='dark'||s==='light')t=s;}catch(e){}document.documentElement.setAttribute('data-theme',t);})();</script>
 <title>A股短线看板 · 涨停接力复盘</title>
 <style>
   :root{
@@ -20,21 +21,22 @@ TEMPLATE = r"""<!DOCTYPE html>
        - 形状：4 档；间距：4px 基准 8 档；动效：2 档
        ============================================================ */
     /* 表面 / 文字 / 描边 */
-    --bui-bg-full:#13161A; --bui-bg-primary:#1B1F25; --bui-bg-secondary:#22272E;
-    --bui-bg-tertiary:#2A3038; --bui-bg-hover:#252A31;
-    --bui-text-primary:#E9EBEE; --bui-text-secondary:#B2B8C1; --bui-text-tertiary:#8A929C;
-    --bui-border-separator:rgba(255,255,255,.075); --bui-border-control:rgba(255,255,255,.13);
-    /* 暖铜 accent ramp（BoardUI 的 accent-50..950 语义，重映射色相） */
+    /* P22 默认主题 = A 米白纸感（主人 2026-11-15 选定）；深色由下方 data-theme 覆盖 */
+    --bui-bg-full:#FAF9F6; --bui-bg-primary:#FFFFFF; --bui-bg-secondary:#F4F2EC;
+    --bui-bg-tertiary:#EAE7DF; --bui-bg-hover:#EFEDE6;
+    --bui-text-primary:#1F1F1F; --bui-text-secondary:#5E6066; --bui-text-tertiary:#787A80;
+    --bui-border-separator:#E4E1D9; --bui-border-control:#D3CFC5;
+    /* 暖铜 accent ramp：仅 300 / 500 / alpha / on 在全站被引用，其余为语义占位 */
     --bui-accent-50:#FBF5EA; --bui-accent-100:#F3E6CE; --bui-accent-200:#E7D2AC;
-    --bui-accent-300:#E0BE86; --bui-accent-400:#D4AC6E; --bui-accent-500:#C9A15E;
+    --bui-accent-300:#8A6326; --bui-accent-400:#D4AC6E; --bui-accent-500:#A9782F;
     --bui-accent-600:#B18A4C; --bui-accent-700:#8F6E3B; --bui-accent-800:#6C522C;
     --bui-accent-900:#4A381F; --bui-accent-950:#2E2314;
-    --bui-accent-alpha:rgba(201,161,94,.14); --bui-accent-on:#1A1712;
-    /* 状态色：红涨绿跌（A 股口径，绝不反向） */
-    --bui-status-up:#D9605A; --bui-status-up-bg:rgba(217,96,90,.13);
-    --bui-status-down:#3E9E78; --bui-status-down-bg:rgba(62,158,120,.13);
-    --bui-info:#7FA8C4; --bui-info-bg:rgba(127,168,196,.13);
-    --bui-violet:#9A8FC4; --bui-violet-bg:rgba(154,143,196,.13);
+    --bui-accent-alpha:rgba(169,120,47,.10); --bui-accent-on:#FFFFFF;
+    /* 状态色：红涨绿跌（A 股口径，绝不反向）；浅底上整体压深以保对比度 */
+    --bui-status-up:#BE3B32; --bui-status-up-bg:rgba(190,59,50,.10);
+    --bui-status-down:#187A52; --bui-status-down-bg:rgba(24,122,82,.10);
+    --bui-info:#2A6C90; --bui-info-bg:rgba(42,108,144,.10);
+    --bui-violet:#6A5CA6; --bui-violet-bg:rgba(106,92,166,.10);
     /* 复合字阶 9 档：每档同时给 size / line-height / weight / letter-spacing */
     --bui-type-micro:9.5px;   --bui-type-micro-lh:14px; --bui-type-micro-fw:400; --bui-type-micro-ls:.04em;
     --bui-type-c2:10px;       --bui-type-c2-lh:15px;   --bui-type-c2-fw:400;   --bui-type-c2-ls:.04em;
@@ -49,8 +51,8 @@ TEMPLATE = r"""<!DOCTYPE html>
     --bui-radius-sm:4px; --bui-radius-md:8px; --bui-radius-lg:10px; --bui-radius-pill:999px;
     --bui-space-1:4px; --bui-space-2:8px; --bui-space-3:12px; --bui-space-4:16px;
     --bui-space-5:20px; --bui-space-6:24px; --bui-space-7:32px; --bui-space-8:48px;
-    --bui-shadow-card:0 1px 1px 0 rgba(0,0,0,.14);
-    --bui-shadow-panel:0 1px 1px 0 rgba(0,0,0,.14),0 4px 4px 0 rgba(0,0,0,.10);
+    --bui-shadow-card:0 1px 2px rgba(40,36,26,.07);
+    --bui-shadow-panel:0 4px 18px rgba(40,36,26,.12);
     --bui-focus-ring:0 0 0 2px var(--bui-accent-500);
     --bui-motion:150ms cubic-bezier(.4,0,.2,1);
     --bui-motion-panel:220ms cubic-bezier(.4,0,.2,1);
@@ -75,6 +77,34 @@ TEMPLATE = r"""<!DOCTYPE html>
     --sp:var(--bui-space-4); --pad:var(--bui-space-4) 18px;
     --font-ui:"PingFang SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
     --font-mono:Consolas,"SF Mono","Roboto Mono",monospace;
+
+    /* ---- P22 形态令牌（浅色专属；形态层不作用于 dark，故无需深色回写） ---- */
+    --bui-nav-bg:var(--bui-bg-full);
+    --bui-badge-radius:var(--bui-radius-pill);
+    --bui-sel-bg:var(--bui-accent-alpha);
+    --bui-sel-fg:var(--bui-accent-300);
+    --bui-sel-line:var(--bui-accent-500);
+    --bui-band-bg:var(--bui-bg-secondary);
+    --bui-zebra:rgba(30,28,22,.025);
+    --bui-mask:rgba(35,32,26,.38);
+    --bui-panel-shadow:-20px 0 44px rgba(30,28,22,.18);
+    color-scheme:light;
+  }
+  /* P21 Graphite Ledger 深色原样保留：右上角切换即可回到这一套 */
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bui-bg-full:#13161A; --bui-bg-primary:#1B1F25; --bui-bg-secondary:#22272E;
+    --bui-bg-tertiary:#2A3038; --bui-bg-hover:#252A31;
+    --bui-text-primary:#E9EBEE; --bui-text-secondary:#B2B8C1; --bui-text-tertiary:#8A929C;
+    --bui-border-separator:rgba(255,255,255,.075); --bui-border-control:rgba(255,255,255,.13);
+    --bui-accent-300:#E0BE86; --bui-accent-500:#C9A15E;
+    --bui-accent-alpha:rgba(201,161,94,.14); --bui-accent-on:#1A1712;
+    --bui-status-up:#D9605A; --bui-status-up-bg:rgba(217,96,90,.13);
+    --bui-status-down:#3E9E78; --bui-status-down-bg:rgba(62,158,120,.13);
+    --bui-info:#7FA8C4; --bui-info-bg:rgba(127,168,196,.13);
+    --bui-violet:#9A8FC4; --bui-violet-bg:rgba(154,143,196,.13);
+    --bui-shadow-card:0 1px 1px 0 rgba(0,0,0,.14);
+    --bui-shadow-panel:0 1px 1px 0 rgba(0,0,0,.14),0 4px 4px 0 rgba(0,0,0,.10);
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   body{background:var(--page); color:var(--ink); font-family:var(--font-ui); line-height:1.6; font-size:var(--bui-type-hl); -webkit-font-smoothing:antialiased;}
@@ -782,11 +812,161 @@ TEMPLATE = r"""<!DOCTYPE html>
     .rd-title{font-size:var(--bui-type-body);}
   }
 
+  /* ==========================================================
+     P22 · 米白纸感主题 · 组件形态层
+     作用域 :root:not([data-theme="dark"])：深色主题保持 P21 像素级原样。
+     只写 background / border / color / box-shadow / border-radius，
+     不碰 display / width / gap / flex / margin / 折叠规则 / 视图显隐。
+     唯一布局例外：.wrap{position:relative} 与 .topbar 右内边距，
+     用于给新增的切换按钮留出位置（不改变三栏结构与任何视图宽度）。
+     ========================================================== */
+  .wrap{position:relative;}
+  .topbar{padding-right:56px;}
+  .theme-tg{position:absolute;top:22px;right:22px;z-index:80;width:32px;height:32px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:var(--bui-bg-primary);color:var(--bui-text-primary);
+    border:1px solid var(--bui-border-control);border-radius:var(--bui-radius-pill);
+    box-shadow:var(--bui-shadow-card);cursor:pointer;
+    transition:color var(--bui-motion),border-color var(--bui-motion),transform var(--bui-motion);}
+  .theme-tg:hover{color:var(--bui-accent-500);border-color:var(--bui-accent-500);transform:translateY(-1px);}
+  .theme-tg:focus-visible{outline:2px solid var(--bui-accent-500);outline-offset:2px;}
+  .theme-tg svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+  .theme-tg .tg-moon{display:none;}
+  :root[data-theme="dark"] .theme-tg .tg-sun{display:none;}
+  :root[data-theme="dark"] .theme-tg .tg-moon{display:block;}
+
+  /* 表单控件在浅色下不再显示深色原生控件 */
+  :root:not([data-theme="dark"]) input,
+  :root:not([data-theme="dark"]) select,
+  :root:not([data-theme="dark"]) button,
+  :root:not([data-theme="dark"]) textarea{color-scheme:light;}
+
+  /* 形态 1 · 顶栏去盒化：纸底直出 + 仅留一条底部分隔线 */
+  :root:not([data-theme="dark"]) .topbar{
+    background:transparent;border-color:transparent;
+    border-bottom-color:var(--bui-border-separator);
+    border-radius:0;box-shadow:none;}
+  :root:not([data-theme="dark"]) h1{color:var(--bui-text-primary);}
+  :root:not([data-theme="dark"]) .sub{color:var(--bui-text-secondary);}
+  :root:not([data-theme="dark"]) .datebtn{border-color:var(--bui-border-control);color:var(--bui-text-secondary);}
+  :root:not([data-theme="dark"]) .datebtn:hover{color:var(--bui-text-primary);border-color:var(--bui-accent-500);background:var(--bui-bg-hover);}
+  :root:not([data-theme="dark"]) .tabs{background:var(--bui-bg-secondary);border-color:var(--bui-border-control);}
+  :root:not([data-theme="dark"]) .tabs label:hover{color:var(--bui-text-primary);}
+
+  /* 形态 2 · 卡片纯白浮起；左栏导航退一档，形成三级视觉权重 */
+  :root:not([data-theme="dark"]) .card,
+  :root:not([data-theme="dark"]) .view .card{
+    background:var(--bui-bg-primary);border-color:var(--bui-border-separator);
+    box-shadow:var(--bui-shadow-card);}
+  :root:not([data-theme="dark"]) .desk-grid .col-nav .nav-card{
+    background:var(--bui-nav-bg);border-color:var(--bui-border-separator);box-shadow:none;}
+
+  /* 形态 3 · 选中态去实心琥珀块 → 浅铜底 + 铜描边 + 深铜字（强调色面积 <5%） */
+  :root:not([data-theme="dark"]) .datebtn.active,
+  :root:not([data-theme="dark"]) #tab-short:checked ~ .tabs label[for="tab-short"],
+  :root:not([data-theme="dark"]) #tab-trend:checked ~ .tabs label[for="tab-trend"],
+  :root:not([data-theme="dark"]) #tab-value:checked ~ .tabs label[for="tab-value"]{
+    background:var(--bui-sel-bg);color:var(--bui-sel-fg);
+    border-color:var(--bui-sel-line);font-weight:600;}
+
+  /* 形态 4 · 分组条去满宽色块 → 左竖线 + 透明底，层级靠竖线颜色区分 */
+  :root:not([data-theme="dark"]) .grp-head{
+    background:transparent;color:var(--bui-text-primary);
+    border:0;border-left:3px solid var(--bui-accent-500);border-radius:0;}
+  :root:not([data-theme="dark"]) .grp-head.g-lb5,
+  :root:not([data-theme="dark"]) .grp-head.g-lb7,
+  :root:not([data-theme="dark"]) .grp-head.lv-strong{border-left-color:var(--bui-status-up);}
+  :root:not([data-theme="dark"]) .grp-head.g-lb2{border-left-color:var(--bui-info);}
+  :root:not([data-theme="dark"]) .sq-gap{
+    background:var(--bui-band-bg);color:var(--bui-text-primary);
+    border-left-color:var(--bui-accent-500);border-radius:var(--bui-radius-sm);}
+  :root:not([data-theme="dark"]) .sq-gap.sq-break{
+    background:var(--bui-status-up-bg);color:var(--bui-status-up);
+    border-left-color:var(--bui-status-up);}
+
+  /* 形态 5 · 徽章胶囊化（文字短、padding 不变，不会引发折行）
+     注意：.grp-head 也带 g-lb* 颜色类，必须显式排除，否则分组标题会被盖成胶囊（P22 实测坑）。 */
+  :root:not([data-theme="dark"]) .pill:not(.grp-head),
+  :root:not([data-theme="dark"]) .cu-tag:not(.grp-head),
+  :root:not([data-theme="dark"]) .tag-danger:not(.grp-head),
+  :root:not([data-theme="dark"]) .st-danger:not(.grp-head),
+  :root:not([data-theme="dark"]) .t-lb1:not(.grp-head),
+  :root:not([data-theme="dark"]) .t-lb2:not(.grp-head),
+  :root:not([data-theme="dark"]) .t-lb3:not(.grp-head),
+  :root:not([data-theme="dark"]) .t-lb4:not(.grp-head),
+  :root:not([data-theme="dark"]) .t-lb5:not(.grp-head),
+  :root:not([data-theme="dark"]) .t-lb7:not(.grp-head),
+  :root:not([data-theme="dark"]) .g-lb2:not(.grp-head),
+  :root:not([data-theme="dark"]) .g-lb3:not(.grp-head),
+  :root:not([data-theme="dark"]) .g-lb4:not(.grp-head),
+  :root:not([data-theme="dark"]) .g-lb5:not(.grp-head),
+  :root:not([data-theme="dark"]) .g-lb7:not(.grp-head){border-radius:var(--bui-badge-radius);}
+
+  /* 形态 6 · 表格：表头浅米底、斑马纹极浅、hover 只微变暗不提亮（P16 铁律） */
+  :root:not([data-theme="dark"]) th{
+    background:var(--bui-band-bg);color:var(--bui-text-secondary);
+    border-color:var(--bui-border-separator);}
+  :root:not([data-theme="dark"]) tr:nth-child(even) td{background:var(--bui-zebra);}
+  :root:not([data-theme="dark"]) tr:hover td{background:var(--bui-bg-hover);color:var(--bui-text-primary);}
+
+  /* 形态 7 · 弹层与时间线标记跟随纸感 */
+  :root:not([data-theme="dark"]) .sd-mask{background:var(--bui-mask);}
+  :root:not([data-theme="dark"]) .sd-wrap{box-shadow:var(--bui-panel-shadow);}
+  :root:not([data-theme="dark"]) .temp-marker{background:var(--bui-text-primary);}
+  :root:not([data-theme="dark"]) .tl-item::before,
+  :root:not([data-theme="dark"]) .rd-item::before{background:var(--bui-accent-500);}
+  :root:not([data-theme="dark"]) #h-toast{box-shadow:var(--bui-shadow-panel);}
+
+  /* ---- 裸色补丁：深色时代写死的淡粉/淡蓝/淡金文字接回语义令牌 ---- */
+  :root:not([data-theme="dark"]) .t-lb4,
+  :root:not([data-theme="dark"]) .g-lb4,
+  :root:not([data-theme="dark"]) .g-lb5,
+  :root:not([data-theme="dark"]) .g-lb7,
+  :root:not([data-theme="dark"]) .kw,
+  :root:not([data-theme="dark"]) .sq-gap.sq-break,
+  :root:not([data-theme="dark"]) .tag-danger,
+  :root:not([data-theme="dark"]) .st-danger{color:var(--bui-status-up);}
+  :root:not([data-theme="dark"]) .t-lb3,
+  :root:not([data-theme="dark"]) .g-lb3{color:var(--bui-accent-300);}
+  :root:not([data-theme="dark"]) .t-lb2,
+  :root:not([data-theme="dark"]) .g-lb2{color:var(--bui-info);}
+  :root:not([data-theme="dark"]) .t-lb1{color:var(--bui-text-secondary);}
+  :root:not([data-theme="dark"]) .t-lb5,
+  :root:not([data-theme="dark"]) .t-lb7{color:#fff;}
+  :root:not([data-theme="dark"]) .tag-danger,
+  :root:not([data-theme="dark"]) .st-danger,
+  :root:not([data-theme="dark"]) .sq-gap.sq-break{border-color:var(--bui-status-up);}
+  :root:not([data-theme="dark"]) .co-link:hover{color:var(--bui-accent-300);background:var(--bui-accent-alpha);}
+  :root:not([data-theme="dark"]) .more-btn{color:var(--bui-text-secondary);}
+  :root:not([data-theme="dark"]) .foot,
+  :root:not([data-theme="dark"]) .disclaimer{color:var(--bui-text-tertiary);}
+
+  /* P16 铁律：追加全站覆盖层后必须自带窄屏回调 */
+  @media (max-width:760px){
+    .theme-tg{top:18px;right:12px;width:30px;height:30px;}
+    .topbar{padding-right:42px;}
+    :root:not([data-theme="dark"]) .card,
+    :root:not([data-theme="dark"]) .view .card{overflow-x:auto;}
+  }
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
 <body>
 <div class="wrap">
+<button class="theme-tg" id="theme-tg" type="button" aria-label="切换深浅主题" title="切换深浅主题">
+<svg class="tg-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+<svg class="tg-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5a7 7 0 0 0 10.7 10.7z"/></svg>
+</button>
+<script>(function(){
+var KEY='board-theme',root=document.documentElement,btn=document.getElementById('theme-tg');
+function label(t){if(!btn)return;var s=t==='dark'?'切换到米白浅色':'切换到石墨深色';btn.setAttribute('aria-label',s);btn.title=s;}
+label(root.getAttribute('data-theme')||'light');
+if(btn)btn.addEventListener('click',function(){
+  var t=root.getAttribute('data-theme')==='dark'?'light':'dark';
+  root.setAttribute('data-theme',t);try{localStorage.setItem(KEY,t);}catch(e){}label(t);
+});
+})();</script>
 <div class="shell">
 <div id="h-toast"></div>
   <div class="topbar">
