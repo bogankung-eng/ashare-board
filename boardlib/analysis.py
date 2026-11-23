@@ -8,6 +8,7 @@ from datetime import datetime
 from .config import BASE, DB, OUT, IDX
 from . import radar
 from . import anchors  # P20 周期锚定链（属性簇 + 锚状态 + 关系链）
+from . import patterns as patterns_mod  # P23 K线技术形态识别
 
 def analyze_lowpos(conn):
     """低位潜力股：位置低(距52周高回落≥25%) + 近期活跃(20日涨停/放量) + 基本面(ROE>0) + 题材热度
@@ -1889,10 +1890,12 @@ def build(dates):
                 "week": analyze_period_timeline(days, dates, 5),
                 "month": analyze_period_timeline(days, dates, 22)}
     sealq = analyze_seal_quality(days, dates)
+    # P23 技术形态：跨窗口扫描，必须在 conn 关闭前算完（顶层键不受 P12 分片影响）
+    patterns = patterns_mod.detect(conn, dates)
     conn.close()
     return {"dates": dates, "days": days, "trend": trend, "value": value, "movement": movement,
             "lowpos": lowpos, "screener": screener, "news": news, "radar": radar_data,
             "promotion": promotion, "newsMap": news_map,
             "nameplay": nameplay, "focus": focus, "themelib": themelib,
             "unlock": unlock, "timeline": timeline, "sealq": sealq, "catchup": catchup,
-            "anchor": anchor}
+            "anchor": anchor, "patterns": patterns}

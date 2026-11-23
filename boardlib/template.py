@@ -949,6 +949,22 @@ TEMPLATE = r"""<!DOCTYPE html>
     :root:not([data-theme="dark"]) .view .card{overflow-x:auto;}
   }
 
+  /* ==========================================================
+     P23 · 技术形态视图（K线形态识别）
+     独立 .pt-* 命名空间，只复用既有 --bui-* / 旧令牌，不新增变量。
+     ========================================================== */
+  .pt-note{font-size:var(--bui-type-c1);color:var(--ink3);line-height:var(--bui-type-c1-lh);margin:2px 0 10px;}
+  .pt-sec-t{font-size:var(--bui-type-c2);font-weight:600;color:var(--ink2);letter-spacing:.04em;margin:10px 0 5px;}
+  .pt-today td{background:var(--upbg);}
+  .pt-today td:first-child{box-shadow:inset 3px 0 0 var(--up);}
+  .pt-alert{background:var(--upbg);border:1px solid var(--up);border-radius:var(--bui-radius-md);padding:9px 13px;margin-bottom:12px;font-size:var(--bui-type-body);color:var(--ink);line-height:1.7;}
+  .pt-alert b{color:var(--up);}
+  .pt-alert a{color:var(--accent);font-weight:600;}
+  @media (max-width:760px){
+    .pt-note{font-size:var(--bui-type-c2);}
+    .pt-alert{padding:8px 11px;}
+  }
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
@@ -1080,7 +1096,17 @@ if(btn)btn.addEventListener('click',function(){
             <div class="tb-title">溢价 · 异动预警</div>
             <div class="tb-tip" id="alert-tip"></div>
           </div>
+          <div id="pt-alert-bar"></div>
           <div id="alert-body"></div>
+        </div>
+      </div>
+      <div class="view" id="view-patterns" style="display:none">
+        <div class="card">
+          <div class="toolbar">
+            <div class="tb-title">技术形态 <span class="cnt" id="pt-cnt"></span></div>
+            <div class="tb-tip">涨停池判板 + K 线量化 · 60 日窗口 · 触发日加红条高亮</div>
+          </div>
+          <div id="pt-body"></div>
         </div>
       </div>
       <div class="view" id="view-cycle" style="display:none">
@@ -1289,6 +1315,7 @@ window.BOARD_DATA = __DATA__;
     ["#ext-card .sub-box", ":scope > .lhb-row", 10, "in"],
     ["#unlock-body table", "tr", 12, "out"],
     ["#alert-body table", "tr", 15, "out"],
+    ["#pt-body table", "tr", 12, "out"],
     ["#theme-body .grp", ":scope > .theme-row, :scope > .dragon-row", 12, "in"],
     ["#scr-body table", "tr", 20, "out"],
     ["#news-body .tl", ":scope > .tl-item", 15, "in"],
@@ -2007,7 +2034,7 @@ window.BOARD_DATA = __DATA__;
     document.querySelectorAll(".mod-btn").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-mod") === name);
     });
-    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点", radar: "消息面 · 12 赛道", anchor: "跨周期 · 锚定链" };
+    var subs = { stage: "短线 · 涨停梯队", alert: "短线 · 异动预警", cycle: "短线 · 周期结构", theme: "短线 · 主线龙头", screener: "多因子选股器", news: "公告资讯", focus: "短线 · 聚焦·字辈·题材库", timeline: "短线 · 情绪·强弱·节点", radar: "消息面 · 12 赛道", anchor: "跨周期 · 锚定链", patterns: "技术形态 · 三类 K 线" };
     var s = document.getElementById("brand-sub");
     if (s) s.textContent = subs[name] || "A股复盘台";
     if (window.history) { try { history.replaceState(null, "", "#" + name); } catch (e) {} }
@@ -2015,11 +2042,11 @@ window.BOARD_DATA = __DATA__;
   }
   window.showView = showView;
 
-  var NAV_META = { stage: ["涨停梯队", "□"], alert: ["异动预警", "△"], cycle: ["情绪周期", "∿"], theme: ["主线龙头", "★"], timeline: ["时间线", "⌛"], screener: ["选股器", "◎"], news: ["公告资讯", "❐"], focus: ["聚焦挖掘", "◉"], radar: ["资讯雷达", "◈"], anchor: ["锚定链", "⌁"] };
+  var NAV_META = { stage: ["涨停梯队", "□"], alert: ["异动预警", "△"], cycle: ["情绪周期", "∿"], theme: ["主线龙头", "★"], timeline: ["时间线", "⌛"], screener: ["选股器", "◎"], news: ["公告资讯", "❐"], focus: ["聚焦挖掘", "◉"], radar: ["资讯雷达", "◈"], anchor: ["锚定链", "⌁"], patterns: ["技术形态", "K"] };
   var NAV_GROUPS = [
     { name: "短线复盘", items: ["stage", "alert", "cycle", "theme", "timeline"] },
     { name: "关系链", items: ["anchor"] },
-    { name: "工具", items: ["screener", "news", "focus", "radar"] },
+    { name: "工具", items: ["screener", "news", "focus", "radar", "patterns"] },
   ];
   window.toggleNavGroup = function (id) {
     var g = document.getElementById(id);
@@ -2130,6 +2157,64 @@ window.BOARD_DATA = __DATA__;
       html += '</table></div>';
     });
     if (!keys.length) html = '<div class="empty">今日无涨停梯队数据</div>';
+    box.innerHTML = html;
+  }
+
+  function renderPtBar() {
+    var bar = document.getElementById("pt-alert-bar");
+    if (!bar) return;
+    var ev = (data.patterns || {}).today_events || [];
+    if (!ev.length) { bar.innerHTML = ""; return; }
+    var LBL = { refirst: "再次首板", engulf: "大阴反包", mareb: "均线反包" };
+    bar.innerHTML = '<div class="pt-alert">⚑ 今日形态触发 <b>' + ev.length + '</b> 只 · ' +
+      ev.map(function (e) {
+        return '<a class="co-link js-stk" data-code="' + esc(e.code) + '" data-name="' + esc(e.name) + '" href="javascript:void(0)"><b>' + esc(e.name) + '</b> ' + (LBL[e.key] || e.key) + '</a>';
+      }).join(" · ") +
+      ' <a href="javascript:void(0)" onclick="showView(\'patterns\')">详情 →</a></div>';
+  }
+
+  function renderPatterns() {
+    if (curView !== "patterns") return;
+    var box = document.getElementById("pt-body");
+    if (!box) return;
+    var P = data.patterns || {};
+    var today = P.today;
+    var defs = [
+      ["refirst", "再次首板 · 首板回调再板", "g-lb4", "首板后 2~5 天回调到首板开盘价附近（低点在开盘价 −3%~+2% 带：允许破一点再回拉、允许差一点瞬间拉起，不要求收盘不破），再次涨停当日触发。"],
+      ["engulf", "高位大阴反包", "g-lb3", "连板 ≥3 次日断板收阴且振幅 ≥8%（高位大震荡阴，非收盘跌幅口径），3 天内首次阳线收盘吞没大阴开盘价触发。"],
+      ["mareb", "均线回调反包", "g-lb2", "连板 ≥2 后 6 日内回踩 MA10（低点入带 ±2%、收盘未深破），3 天内阳线收盘反包前日最高触发；未反包未破位列入等待。横盘等均线金叉分支二期。"]
+    ];
+    var html = "", nAll = 0;
+    defs.forEach(function (d) {
+      var k = d[0];
+      var f = (P.fired || {})[k] || [], w = (P.watching || {})[k] || [];
+      var ft = f.filter(function (e) { return e.date === today; });
+      nAll += f.length + w.length;
+      html += '<div class="grp"><div class="grp-head ' + d[2] + '">' + d[1] +
+        '<span class="cnt">' + (ft.length ? "今日触发 " + ft.length + " · " : "") + "窗口 " + f.length + (w.length ? " · 等待 " + w.length : "") + '</span></div>' +
+        '<div class="pt-note">' + d[3] + '</div>';
+      if (w.length) {
+        html += '<div class="pt-sec-t">等待中 · 提前跟踪</div><table><thead><tr><th>个股</th><th>状态</th><th>说明</th></tr></thead><tbody>';
+        w.forEach(function (e) {
+          html += '<tr><td>' + stockLink(e.code, e.name) + '</td><td><span class="pill" style="background:var(--bui-info-bg);color:var(--bui-info);">等待</span></td><td>' + esc(e.detail) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+      if (f.length) {
+        html += '<div class="pt-sec-t">已触发 · 近 60 日</div><table><thead><tr><th>触发日</th><th>个股</th><th>说明</th></tr></thead><tbody>';
+        f.forEach(function (e) {
+          html += '<tr' + (e.date === today ? ' class="pt-today"' : '') + '><td class="num">' + e.date.slice(4, 6) + '-' + e.date.slice(6, 8) + '</td><td>' + stockLink(e.code, e.name) + '</td><td>' + esc(e.detail) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+      if (!w.length && !f.length) html += '<div class="empty">窗口内暂无该形态</div>';
+      html += '</div>';
+    });
+    var cnt = document.getElementById("pt-cnt");
+    if (cnt) {
+      var ws = (P.window || {}).start || "", we = P.today || "";
+      cnt.textContent = "窗口 " + (ws ? ws.slice(4, 6) + "-" + ws.slice(6, 8) : "?") + " ~ " + (we ? we.slice(4, 6) + "-" + we.slice(6, 8) : "?") + " · 事件 " + nAll;
+    }
     box.innerHTML = html;
   }
 
@@ -2865,6 +2950,8 @@ window.BOARD_DATA = __DATA__;
     renderNews();
     renderRadar();
     renderAnchor();
+    renderPatterns();
+    renderPtBar();
     renderFocus();
     renderTimeline();
     renderSidePanel();
@@ -3125,7 +3212,7 @@ window.BOARD_DATA = __DATA__;
   renderTrend();
   renderValue();
   var _h = (location.hash || "").slice(1);
-  var _views = ["stage", "alert", "cycle", "theme", "screener", "news", "focus", "timeline", "radar", "anchor"];
+  var _views = ["stage", "alert", "cycle", "theme", "screener", "news", "focus", "timeline", "radar", "anchor", "patterns"];
   if (_h && _views.indexOf(_h) >= 0) { showView(_h); } else { renderAll(); }
 
   // ===== GSAP 动画层（仅首屏，判定已在顶部完成）=====

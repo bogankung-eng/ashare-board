@@ -83,6 +83,18 @@ def main():
         L.append(f"【异动】T0观察 {len(mv['alerts'])} 只（接近阈值）")
     else:
         L.append("【异动】无触发")
+    # 技术形态（P23）
+    pt = data.get("patterns") or {}
+    pt_ev = pt.get("today_events") or []
+    pt_cnt = pt.get("counts") or {}
+    pt_w = pt_cnt.get("refirst", {}).get("watching", 0) + pt_cnt.get("mareb", {}).get("watching", 0)
+    PTL = {"refirst": "再次首板", "engulf": "大阴反包", "mareb": "均线反包"}
+    if pt_ev:
+        names = "、".join(f"{e['name']}（{PTL.get(e['key'], e['key'])}）" for e in pt_ev[:6])
+        extra = f" 等{len(pt_ev)}只" if len(pt_ev) > 6 else ""
+        L.append(f"【形态】今日触发 {len(pt_ev)} 只：{names}{extra}；等待中 {pt_w} 只")
+    elif pt_w:
+        L.append(f"【形态】今日无触发；等待中 {pt_w} 只（回调至锚附近，见看板技术形态页）")
     # 席位
     hm = [h for h in seats.get("hot", []) if h["net"] != 0]
     if hm:
