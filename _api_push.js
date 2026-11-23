@@ -5,9 +5,11 @@ const path = require('path');
 
 const REPO = 'bogankung-eng/ashare-board';
 const BRANCH = 'main';
-const MESSAGE = 'auto: 每日看板更新 2026-09-08';
-const FILES = ['board.html', 'public/index.html'];
-const LOCAL_PARENT = 'ee659840e7186ea5825e7116315c82eec11b8593'; // 已知远端 HEAD
+// 支持环境变量覆盖，备用通道推多文件时不用改本文件：
+//   PUSH_MESSAGE="..." PUSH_FILES="a,b,c" PUSH_PARENT=<remote_sha> node _api_push.js
+const MESSAGE = process.env.PUSH_MESSAGE || 'auto: 每日看板更新';
+const FILES = (process.env.PUSH_FILES || 'board.html,public/index.html').split(',');
+const LOCAL_PARENT = process.env.PUSH_PARENT || 'ee659840e7186ea5825e7116315c82eec11b8593'; // 已知远端 HEAD
 
 function getToken() {
   const out = execFileSync('git', ['credential', 'fill'], {
